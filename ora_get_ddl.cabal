@@ -1,0 +1,24 @@
+name: ora-get-ddl
+version: 0.0.1
+cabal-version: >=1.2
+build-type: Simple
+license: PublicDomain
+license-file: ""
+maintainer: Maksim Golubev
+stability: beta
+bug-reports: maksim.golubev72@gmail.com
+synopsis: Extracts data definitions of oracle objects into plain text files.
+description: 
+category: DataBase
+author: Maksim Golubev
+tested-with: GHC ==7.4.1
+data-dir: ""
+ 
+executable ora_get_ddl
+    build-depends: base >=4.3.1.0,
+                   cmdargs >=0.9.3, temporary >=1.1.2.3,
+                   Takusen >= 0.8.7,
+                   mtl, filepath, containers
+    main-is: Main.hs
+    buildable: True
+    hs-source-dirs: .
