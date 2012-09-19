@@ -15,6 +15,7 @@ import Database.Enumerator
 import Database.Oracle.Enumerator
 
 import OracleUtils
+import Utils
 
 data Options = Options
                {
@@ -58,15 +59,6 @@ getUnionAll lst =
     x1:xs@(x2:_) -> select x1 ++ " union all " ++ getUnionAll xs
   where
     select = printf "select '%s' from dual"
-
-clear0 x =
-  map clear x
-  where
-    clear '\0' = ' '
-    clear x    = x
-
-chomp x =
-  dropWhileEnd (=='\n') $ unlines $ map (dropWhileEnd (isSpace)) $ lines x
 
 
 
@@ -115,10 +107,10 @@ retrieveViewsDDL opts = do
   forM_ r $ \(view_name, text, comments) -> do
     let
       create :: String =
-        printf "CREATE OR REPLACE VIEW %s\nAS\n%s\n/\n" (getSafeName view_name) $ chomp . clear0 $ text
+        printf "CREATE OR REPLACE VIEW %s\nAS\n%s\n/\n" (getSafeName view_name) $ clearSqlSource text
       comment :: String =
         case comments of
-          Just c  -> printf "\nCOMMENT ON TABLE %s IS '%s'\n/\n" (getSafeName view_name) $ chomp . clear0 $ c
+          Just c  -> printf "\nCOMMENT ON TABLE %s IS '%s'\n/\n" (getSafeName view_name) $ clearSqlSource c
           Nothing -> ""
     let
       qryItr :: (Monad m) => String -> Maybe String -> IterAct m [(String, Maybe String)]
@@ -131,7 +123,7 @@ retrieveViewsDDL opts = do
                \ order by column_name        \n" schema view_name
     r <- (filter (\(_, x) -> isJust x) . reverse) `liftM` doQuery (sql sql') qryItr []
     let column_comments :: String = concat $ flip map r $ \(column_name, comments) -> do
-          printf "\nCOMMENT ON COLUMN %s.%s IS '%s'\n/\n" (getSafeName view_name) (getSafeName column_name) (clear0 $ fromJust comments) :: String
+          printf "\nCOMMENT ON COLUMN %s.%s IS '%s'\n/\n" (getSafeName view_name) (getSafeName column_name) (clearSqlSource $ fromJust comments) :: String
     
     liftIO $ write2File (o_output_dir opts) view_name "vew" $ create ++ comment ++ column_comments
 

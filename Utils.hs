@@ -1,0 +1,101 @@
+module Utils
+  (
+   clearSqlSource
+  )
+where
+
+import Text.ParserCombinators.Parsec
+import Control.Monad
+import Data.List
+import Data.Char
+
+
+clearSqlSource :: String -> String
+clearSqlSource src =
+  dropWhileEnd isSpace $
+  case parse parseSql "(unknown)" src of
+    Left e -> error $ show e
+    Right x -> concat x
+
+parseSql :: CharParser st [String]
+parseSql = do
+  s1 <- many $ try sqlPart
+  s2 <- many $ try clearedChar
+  eof
+  return $ s1 ++ [s2]
+
+sqlPart :: CharParser st String
+sqlPart = do
+  sqlLiteral <|> sqlComment <|> sqlEndLineComment <|> sqlCode
+
+sqlLiteral :: CharParser st String
+sqlLiteral = do
+  s1 <- string "'" <?> "literal start(')"
+  s2 <- many $ noneOf "'"
+  s3 <- string "'" <?> "literal end (')"
+  return $ s1 ++ s2 ++ s3
+
+sqlComment :: CharParser st String
+sqlComment = do
+  (try $ string start) <?> "comment start (/*)"
+  s1 <- manyTill normalizeEOLs (try $ lookAhead $ string end)
+  (try $ string end) <?> "comment end (/*)"
+  return $ start ++ dropEndLineSpaces s1 ++ end
+  where
+    start = "/*"
+    end   = "*/"
+  
+sqlEndLineComment :: CharParser st String
+sqlEndLineComment = do
+  (try $ string "--") <?> "line comment start (--)"
+  s1 <- manyTill clearedChar (lookAhead $ eol <|> (eof >> return ""))
+  s2 <- eol <|> (eof >> return "")
+  return $ "--" ++ s1 ++ s2
+
+sqlCode :: CharParser st String
+sqlCode = do
+  s <- try (manyTill normalizeEOLs (lookAhead $ try (string "/*") <|> try (string "--") <|> string "'")) <|> many1 clearedChar
+  return $ dropEndLineSpaces s
+
+sqlTest :: CharParser st String
+sqlTest = do
+  x <- string "**" <?> "double star"
+  y <- string "++" <?> "double plus"
+  return "yes"
+
+
+eol :: CharParser st String
+eol = do
+  ( try (string "\n\r")
+    <|>
+    try (string "\r\n")
+    <|>
+    string "\n"
+    <|>
+    string "\r"
+    <?> "end of line" ) >> return "\n"
+
+normalizeEOLs :: CharParser st Char
+normalizeEOLs = do
+  (try eol >> return '\n')
+  <|>
+  clearedChar
+
+clearedChar :: CharParser st Char
+clearedChar = do
+  (char '\0' >> return ' ')
+  <|> 
+  anyChar
+
+dropEndLineSpaces :: String -> String
+dropEndLineSpaces [] = []
+dropEndLineSpaces s =
+  let
+    endEol = last s == '\n'
+    ls = lines s
+    lastLine = last ls
+    initLines' = unlines $ map (dropWhileEnd isSpace) $ init ls
+    lastLine' = if endEol then (dropWhileEnd isSpace lastLine) ++ "\n" else lastLine
+  in
+    initLines' ++ lastLine'
+
