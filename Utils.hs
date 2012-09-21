@@ -1,9 +1,12 @@
 module Utils
   (
-   clearSqlSource
+   clearSqlSource,
+   stringCSI,
+   printWarning
   )
 where
 
+import System.IO
 import Text.ParserCombinators.Parsec
 import Control.Monad
 import Data.List
@@ -39,7 +42,7 @@ sqlComment :: CharParser st String
 sqlComment = do
   (try $ string start) <?> "comment start (/*)"
   s1 <- manyTill normalizeEOLs (try $ lookAhead $ string end)
-  (try $ string end) <?> "comment end (/*)"
+  (try $ string end) <?> "comment end (*/)"
   return $ start ++ dropEndLineSpaces s1 ++ end
   where
     start = "/*"
@@ -50,7 +53,7 @@ sqlEndLineComment = do
   (try $ string "--") <?> "line comment start (--)"
   s1 <- manyTill clearedChar (lookAhead $ eol <|> (eof >> return ""))
   s2 <- eol <|> (eof >> return "")
-  return $ "--" ++ s1 ++ s2
+  return $ "--" ++ dropWhileEnd isSpace s1 ++ s2
 
 sqlCode :: CharParser st String
 sqlCode = do
@@ -99,3 +102,18 @@ dropEndLineSpaces s =
   in
     initLines' ++ lastLine'
 
+-- | Case and count of spaces insensitive variant of 'string'
+stringCSI :: String -> CharParser st String
+stringCSI pattern = do
+  try $ foldl glue (return "") $ map test (unwords $ words pattern)
+  where test x = if isSpace x
+                 then space >> spaces >> return " "
+                 else string [toUpper x] <|> string [toLower x]
+        glue x y = do
+          s1 <- x
+          s2 <- y
+          return $ s1 ++ s2
+  
+
+printWarning :: String -> IO ()
+printWarning = hPutStrLn stderr

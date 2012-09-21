@@ -14,6 +14,8 @@ import Control.Monad.Trans
 import Database.Enumerator
 import Database.Oracle.Enumerator
 
+import Text.ParserCombinators.Parsec
+
 import OracleUtils
 import Utils
 
@@ -129,7 +131,81 @@ retrieveViewsDDL opts = do
 
 
 retrieveSourcesDDL opts = do
+  let
+    schema = fromJust $ o_schema opts
+  
+  let
+    queryIteratee :: (Monad m) => String -> String -> String -> IterAct m [(String, String, String)]
+    queryIteratee a b c accum = result' ((a, b, c):accum)
+    sql' = printf "select name, type, text                                          \n\
+                  \  from sys.all_source                                            \n\
+                  \ where owner='%s'                                                \n\ 
+                  \   and type in ('PACKAGE','PACKAGE BODY','PROCEDURE','FUNCTION', \n\
+                  \                'TYPE', 'TYPE BODY', 'JAVA SOURCE')              \n" schema
+           ++
+           (if isNothing $ o_obj_list opts
+            then ""
+            else printf " and name in (%s) \n" $ getUnionAll $ fromJust $ o_obj_list opts)
+           ++
+           " order by owner,type,name,line "
+
+  r <- ((groupBy (\(n1,t1,_) (n2,t2,_) -> n1 == n2 && t1 == t2)) . reverse)
+       `liftM`
+       doQuery (sql sql') queryIteratee []
+
+  forM_ r $ \x -> do
+    let
+      (name, type', _) = head x
+      text :: String
+      text = foldr (++) "" $ map (\(_,_,text) -> text) x
+    
+      safe_name = getSafeName name
+
+      saveSQL suffix = do
+        let
+          isNameCaseSensitive = safe_name /= name
+          text' =  parse (do 
+                               spaces
+                               t'  <- stringCSI type'
+                               spaces
+          
+                               n' <- try $ do string "\""
+                                              n <- stringCSI name
+                                              try $ string "\""
+                                              return n
+                                           <|> stringCSI name
+                               x <- many anyChar
+                               let nameMismatchInCode = not $ if isNameCaseSensitive then n' == name else map toUpper n' == map toUpper name
+                               return $ 
+                                 t' ++ " " ++
+                                 case () of
+                                        _
+                                          | isNameCaseSensitive -> "\"" ++ name ++ "\""
+                                          | nameMismatchInCode  -> name
+                                          | otherwise           -> n'
+                                 ++ x
+                         ) safe_name text
+
+        text'' <- case text' of
+                    Right x -> return x
+                    Left e -> do liftIO . printWarning $ show e
+                                 return text
+        let text''' = printf "CREATE OR REPLACE\n%s\n/\n" $ clearSqlSource text''
+        liftIO $ write2File (o_output_dir opts) name suffix text'''
+      saveJava = do
+        let text''' = printf "CREATE OR REPLACE AND COMPILE JAVA SOURCE NAMED %s AS\n%s" safe_name text
+        liftIO $ withFile (o_output_dir opts </> (addExtension name "java")) WriteMode $ \h -> hPutStr h text'''
+    case type' of
+      "PACKAGE" -> saveSQL "pkg"
+      "PACKAGE BODY" -> saveSQL "pkb"
+      "FUNCTION" -> saveSQL "fun"
+      "PROCEDURE" -> saveSQL "prc"
+      "TYPE" -> saveSQL "typ"
+      "TYPE BODY" -> saveSQL "tyb"
+      "JAVA SOURCE" -> saveJava
+
   return ()
+
 
 retrieveTriggersDDL opts = do
   return ()
