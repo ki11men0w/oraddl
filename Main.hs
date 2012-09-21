@@ -43,11 +43,11 @@ getOpts = do
           list =
             def
             &= typ "OBJ1,OBJ2,..."
-            &= help "Object names delimited by comma (,)",
+            &= help "Object names delimited by comma (,). Object names are case sensitive",
           listf =
             def
             &= typ "FILE"
-            &= help "File with list of intresting objects",
+            &= help "File with list of intresting objects. Object names are case sensitive",
           directory =
             "."
             &= explicit &= name "dir"
