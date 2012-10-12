@@ -208,6 +208,74 @@ retrieveSourcesDDL opts = do
 
 
 retrieveTriggersDDL opts = do
+  let
+    schema = fromJust $ o_schema opts
+  
+  let
+    queryIteratee :: (Monad m) => String -> String -> String -> String -> String -> IterAct m [(String, String, String, String, String)]
+    queryIteratee a b c d e accum = result' ((a, b, c, d, e):accum)
+    sql' = printf "select owner,trigger_name,description,trigger_body,status        \n\
+                  \  from sys.all_triggers                                          \n\
+                  \ where owner='%s'                                                \n" schema
+           ++
+           (if isNothing $ o_obj_list opts
+            then ""
+            else printf " and name in (%s) \n" $ getUnionAll $ fromJust $ o_obj_list opts)
+
+  r <- reverse `liftM` doQuery (sql sql') queryIteratee []
+  
+  forM_ r $ \(owner, name, descr, body, status) -> do
+    let
+      safe_name = getSafeName name
+      isNameCaseSensitive = safe_name /= name
+      descr' = parse (do
+                       let quotedName = do 
+                             string "\""
+                             n <- stringCSI name
+                             string "\""
+                             return n
+
+                           schemaName = do
+                             sch <- try $ do string "\"" 
+                                             sch <- stringCSI owner
+                                             string "\""
+                                             return sch
+                                    <|>
+                                    stringCSI owner
+
+                             spaces >> string "." >> spaces
+                             return sch
+
+                       spaces
+                       
+                       n' <- try (stringCSI name)
+                             <|>
+                             try quotedName
+                             <|>
+                             (schemaName >> (try (stringCSI name) <|> quotedName))
+
+                       x <- many anyChar
+                       let nameMismatchInCode = not $ if isNameCaseSensitive then n' == name else map toUpper n' == map toUpper name
+                       return $ 
+                         case () of
+                                _
+                                  | isNameCaseSensitive -> "\"" ++ name ++ "\""
+                                  | nameMismatchInCode  -> name
+                                  | otherwise           -> n'
+                         ++
+                         -- Если после имени тригера нет пробела, то добавляем его
+                         case x of
+                           x1:_ -> if isSpace x1 then x else " " ++ x
+                           _    -> x
+                     ) safe_name descr
+    descr'' <- case descr' of
+                Right x -> return x
+                Left e -> do liftIO . printWarning $ show e
+                             return descr
+    let text = printf "CREATE OR REPLACE TRIGGER %s\n%s\n/\n" (clearSqlSource descr'') (clearSqlSource body)
+    
+    liftIO $ write2File (o_output_dir opts) name "trg" text
+
   return ()
 
 retrieveSynonymsDDL opts = do
