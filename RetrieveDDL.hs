@@ -289,7 +289,61 @@ retrieveTriggersDDL opts = do
   return ()
 
 retrieveSynonymsDDL opts = do
-  return ()
+  let
+    schema = fromJust $ o_schema opts
+  
+  let
+    iter :: (Monad m) => Bool -> IterAct m Bool
+    iter a accum = result' a
+    -- Определяем есть ли колонка DB_LINK
+    sql' = "select 'True'                    \n\
+           \  from sys.all_tab_columns       \n\
+           \ where table_name='ALL_SYNONYMS' \n\
+           \   and COLUMN_NAME = 'DB_LINK'   \n\
+           \   and rownum = 1                "
+
+  dbLinkColumnExists <- doQuery (sql sql') iter False
+
+  let
+    iter :: (Monad m) => String -> String -> Maybe String -> String -> Maybe String -> IterAct m [(String, String, Maybe String, String, Maybe String)]
+    iter a b c d e accum = result' ((a, b, c, d, e):accum)
+    sql'' = "select owner            \n\
+            \      ,synonym_name     \n\
+            \      ,table_owner      \n\
+            \      ,table_name       \n\
+            \      ,%s as db_link    \n\
+            \  from sys.all_synonyms \n\
+            \ where owner='%s'       \n"
+            ++
+           (if isNothing $ o_obj_list opts
+            then ""
+            else printf " and synonym_name in (%s) \n" $ getUnionAll $ fromJust $ o_obj_list opts)
+
+    sql' = printf sql''
+            (if dbLinkColumnExists then "db_link" else "null")
+            schema
+
+  r <- reverse `liftM` doQuery (sql sql') iter []
+
+  forM_ r $ \(owner, synonym_name, table_owner, table_name, db_link) -> do
+    let
+      safe_name = getSafeName synonym_name
+      isNameCaseSensitive = safe_name /= synonym_name
+
+      text :: String = case table_owner of
+        Nothing ->
+           printf "CREATE SYNONYM %s\n\
+                  \           FOR %s@%s\n/\n" safe_name (getSafeName table_name) (getSafeName2 $ maybe "" id db_link)
+        Just table_owner'
+         | getSafeName table_owner'  == getSafeName schema ->
+           printf "CREATE SYNONYM %s\n\
+                  \           FOR %s\n/\n" safe_name (getSafeName table_name) 
+         | otherwise ->
+           printf "CREATE SYNONYM %s\n\
+                  \           FOR %s.%s\n/\n" safe_name table_owner' (getSafeName table_name) 
+
+    liftIO $ write2File (o_output_dir opts) synonym_name "syn" text
+
 
 retrieveSequencesDDL opts = do
   return ()
