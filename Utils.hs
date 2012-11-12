@@ -2,16 +2,19 @@ module Utils
   (
    clearSqlSource,
    stringCSI,
-   printWarning
+   printWarning,
+   CharParser
   )
 where
 
 import System.IO
-import Text.ParserCombinators.Parsec
+import Text.Parsec
+import Text.Parsec.String
 import Control.Monad
 import Data.List
 import Data.Char
 
+type CharParser st = GenParser Char st
 
 clearSqlSource :: String -> String
 clearSqlSource src =

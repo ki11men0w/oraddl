@@ -14,7 +14,7 @@ import Control.Monad.Trans
 import Database.Enumerator
 import Database.Oracle.Enumerator
 
-import Text.ParserCombinators.Parsec
+import Text.Parsec
 
 import OracleUtils
 import Utils
