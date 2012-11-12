@@ -60,13 +60,6 @@ sqlCode = do
   s <- try (manyTill normalizeEOLs (lookAhead $ try (string "/*") <|> try (string "--") <|> string "'")) <|> many1 clearedChar
   return $ dropEndLineSpaces s
 
-sqlTest :: CharParser st String
-sqlTest = do
-  x <- string "**" <?> "double star"
-  y <- string "++" <?> "double plus"
-  return "yes"
-
-
 eol :: CharParser st String
 eol = do
   ( try (string "\n\r")
