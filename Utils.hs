@@ -3,7 +3,8 @@ module Utils
    clearSqlSource,
    stringCSI,
    printWarning,
-   CharParser
+   CharParser,
+   isSpace
   )
 where
 
@@ -12,9 +13,15 @@ import Text.Parsec
 import Text.Parsec.String
 import Control.Monad
 import Data.List
-import Data.Char
+import Data.Char (ord, toUpper, toLower)
 
 type CharParser st = GenParser Char st
+
+-- | Для однобайтовых кодировок некоторые символы национальных алфавитов могут ошибочно
+-- интерпретироваться как пробельные символы. Поэтому реализуем здесь упрощённый вариант isSpace.
+isSpace :: Char -> Bool
+isSpace c =
+  ord c <= ord ' '
 
 clearSqlSource :: String -> String
 clearSqlSource src =

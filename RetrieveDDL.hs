@@ -6,7 +6,7 @@ import System.IO
 import System.FilePath
 import Data.Maybe (fromJust, isNothing, isJust)
 import Data.List
-import Data.Char
+import Data.Char (toUpper)
 
 import Text.Printf
 import Control.Monad
@@ -17,7 +17,11 @@ import Database.Oracle.Enumerator
 import Text.Parsec
 
 import OracleUtils
-import Utils
+import Utils ( clearSqlSource,
+               stringCSI,
+               printWarning,
+               isSpace
+             )
 
 data Options = Options
                {
