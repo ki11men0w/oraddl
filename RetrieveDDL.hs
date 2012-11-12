@@ -278,7 +278,11 @@ retrieveTriggersDDL opts = do
                 Right x -> return x
                 Left e -> do liftIO . printWarning $ show e
                              return descr
-    let text = printf "CREATE OR REPLACE TRIGGER %s\n%s\n/\n" (clearSqlSource descr'') (clearSqlSource body)
+    let
+      text' = printf "CREATE OR REPLACE TRIGGER %s\n%s\n/\n" (clearSqlSource descr'') (clearSqlSource body)
+      text = if status == "DISABLED"
+             then text' ++ printf "\nALTER TRIGGER %s DISABLE\n/\n" safe_name
+             else text'
     
     liftIO $ write2File (o_output_dir opts) name "trg" text
 
