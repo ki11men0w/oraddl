@@ -40,9 +40,9 @@ getSchema schema = do
     _      -> getDefaultSchema
   
 
-getSafeName :: String -> String
-getSafeName ora_name =
-  if all (`elem` "1234567890QWERTYUIOPASDFGHJKLZXCVBNM_#$") stripped
+getSafeName' :: String -> String -> String
+getSafeName' simpleSymbols ora_name =
+  if all (`elem` simpleSymbols) stripped
   then stripped
   else "\"" ++ stripped ++ "\""
   
@@ -52,6 +52,12 @@ getSafeName ora_name =
       then init . tail $ ora_name
       else ora_name
           
+getSafeName :: String -> String
+getSafeName = getSafeName' "1234567890QWERTYUIOPASDFGHJKLZXCVBNM_#$"
+
+getSafeName2 :: String -> String
+getSafeName2 = getSafeName' "1234567890QWERTYUIOPASDFGHJKLZXCVBNM_#$."
+
 
 getUnionAll :: [String] -> String
 getUnionAll lst =
