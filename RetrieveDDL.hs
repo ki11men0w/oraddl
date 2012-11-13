@@ -350,7 +350,61 @@ retrieveSynonymsDDL opts = do
 
 
 retrieveSequencesDDL opts = do
-  return ()
+  let
+    schema = fromJust $ o_schema opts
+  
+  let
+    iter :: (Monad m) => String -> String -> String -> String -> String -> Integer -> String -> String
+            -> IterAct m[(String, String, String, String, String, Integer, String, String)]
+    iter a1 a2 a3 a4 a5 a6 a7 a8 accum = result' ((a1, a2, a3, a4, a5, a6, a7, a8):accum)
+    
+    sql' = printf
+           "select sequence_name                         \n\
+           \      ,to_char(increment_by) as increment_by \n\
+           \      ,to_char(min_value) as min_value       \n\
+           \      ,to_char(max_value) as max_value       \n\
+           \      ,to_char(cache_size) as cache_size     \n\
+           \      ,cache_size as cache_size_x            \n\
+           \      ,cycle_flag                            \n\
+           \      ,order_flag                            \n\
+           \  from sys.all_sequences                     \n\
+           \ where sequence_owner='%s'                   \n"
+           schema
+           ++
+           (if isNothing $ o_obj_list opts
+            then ""
+            else printf " and sequence_name in (%s) \n" $ getUnionAll $ fromJust $ o_obj_list opts)
+
+
+  r <- reverse `liftM` doQuery (sql sql') iter []
+  
+  forM_ r $ \(sequence_name, increment_by, min_value, max_value, cache_size, cache_size_x, cycle_flag, order_flag) -> do
+    let
+      decl = printf "\
+                    \CREATE SEQUENCE %s\n\
+                    \  INCREMENT BY %s\n\
+                    \  MINVALUE %s\n\
+                    \  MAXVALUE %s\n" (getSafeName sequence_name) increment_by min_value max_value
+             ++
+             case cycle_flag of
+                "Y" -> "  CYCLE\n"
+                "N" -> "  NOCYCLE\n"
+                _   -> ""
+             ++
+             case order_flag of
+                "Y" -> "  ORDER\n"
+                "N" -> "  NOORDER\n"
+                _   -> ""
+             ++
+             (if cache_size_x <= 0
+              then "  NOCACHE\n"
+              else printf "  CACHE %s\n" cache_size)
+             ++
+             "/\n"
+             
+
+    liftIO $ write2File (o_output_dir opts) sequence_name "seq" decl
+    
 
 retrieveTablesDDL opts = do
   return ()
