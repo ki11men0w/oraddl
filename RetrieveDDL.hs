@@ -4,9 +4,9 @@ module RetrieveDDL where
 
 import System.IO
 import System.FilePath
-import Data.Maybe (fromJust, isNothing, isJust)
+import Data.Maybe (fromJust, isNothing, isJust, catMaybes)
 import Data.List
-import Data.Char (toUpper)
+import Data.Char (toUpper, toLower)
 
 import Text.Printf
 import Control.Monad
@@ -16,11 +16,16 @@ import Database.Oracle.Enumerator
 
 import Text.Parsec
 
+import Text.Regex.TDFA
+
+import qualified Data.Map as M
+
 import OracleUtils
 import Utils ( clearSqlSource,
                stringCSI,
                printWarning,
-               isSpace
+               isSpace,
+               strip
              )
 
 data Options = Options
@@ -83,6 +88,8 @@ retreiveDDL opts = do
     schema' <- getSchema $ o_schema opts
     let opts' = opts {o_schema = Just schema'}
     
+    -- liftIO $ putStr "Yoo! " >> hFlush stdout >> getLine
+
     retrieveViewsDDL opts'
     retrieveSourcesDDL opts'
     retrieveTriggersDDL opts'
@@ -103,12 +110,13 @@ retrieveViewsDDL opts = do
   let
     queryIteratee :: (Monad m) => String -> String -> Maybe String -> IterAct m [(String, String, Maybe String)]
     queryIteratee a b c accum = result' ((a, b, c):accum)
-    sql' = printf  "select a.view_name, a.text, b.comments \n\
-                   \  from sys.all_views a,                \n\
-                   \       sys.all_tab_comments b          \n\
-                   \ where a.owner='%s'                    \n\
-                   \   and a.owner = b.owner(+)            \n\
-                   \   and a.view_name=b.table_name(+)     \n" schema
+    sql'  = printf
+           "select a.view_name, a.text, b.comments \n\
+           \  from sys.all_views a,                \n\
+           \       sys.all_tab_comments b          \n\
+           \ where a.owner = '%s'                  \n\
+           \   and a.owner = b.owner(+)            \n\
+           \   and a.view_name=b.table_name(+)     \n" schema
            ++
            if isNothing $ o_obj_list opts
            then ""
@@ -127,13 +135,13 @@ retrieveViewsDDL opts = do
     let
       qryItr :: (Monad m) => String -> Maybe String -> IterAct m [(String, Maybe String)]
       qryItr a b accum = result' ((a,b):accum)
-      sql' :: String =
-        printf "select column_name, comments \n\
-               \  from sys.all_col_comments  \n\
-               \ where owner='%s'            \n\
-               \   and table_name='%s'       \n\
-               \ order by column_name        \n" schema view_name
-    r <- (filter (\(_, x) -> isJust x) . reverse) `liftM` doQuery (sql sql') qryItr []
+      stm = sqlbind
+            "select column_name, comments \n\
+            \  from sys.all_col_comments  \n\
+            \ where owner = ?             \n\
+            \   and table_name = ?        \n\
+            \ order by column_name        \n" [bindP schema, bindP view_name]
+    r <- (filter (\(_, x) -> isJust x) . reverse) `liftM` doQuery stm qryItr []
     let column_comments :: String = concat $ flip map r $ \(column_name, comments) -> do
           printf "\nCOMMENT ON COLUMN %s.%s IS '%s'\n/\n" (getSafeName view_name) (getSafeName column_name) (clearSqlSource $ fromJust comments) :: String
     
@@ -230,7 +238,7 @@ retrieveTriggersDDL opts = do
            ++
            (if isNothing $ o_obj_list opts
             then ""
-            else printf " and name in (%s) \n" $ getUnionAll $ fromJust $ o_obj_list opts)
+            else printf " and trigger_name in (%s) \n" $ getUnionAll $ fromJust $ o_obj_list opts)
 
   r <- reverse `liftM` doQuery (sql sql') queryIteratee []
   
@@ -407,5 +415,379 @@ retrieveSequencesDDL opts = do
     
 
 retrieveTablesDDL opts = do
+  let
+    schema = fromJust $ o_schema opts
+  
+    sql' = printf
+           "select a.table_name, b.comments, a.temporary, a.duration \n\
+           \  from sys.all_tables a,                                 \n\
+           \       sys.all_tab_comments b                            \n\
+           \ where a.owner='%s'                                      \n\
+           \   and b.owner='%s'                                      \n\
+           \   and a.table_name=b.table_name \n"
+           schema schema
+           ++
+           (if isNothing $ o_obj_list opts
+            then ""
+            else printf " and a.table_name in (%s) \n" $ getUnionAll $ fromJust $ o_obj_list opts)
+   
+    iter :: (Monad m) => String -> Maybe String -> String -> Maybe String -> IterAct m [(String, Maybe String, String, Maybe String)]
+    iter a1 a2 a3 a4 accum = result' $ (a1,a2,a3,a4):accum
+
+  tables <- reverse `liftM` doQuery (sql sql') iter []
+
+  -- Обход всех таблиц
+  forM_ tables $ \(table_name, comments, temporary, duration) -> do
+
+    -- Соединяем все вместе и получаем декларацию всей таблицы
+    columns_decl :: String <- getDeclColumns schema table_name
+    columns_comment_decl :: Maybe String <- getDeclColumnsComment schema table_name
+    (constraints_decl, constraints) :: (Maybe String, M.Map String ())<- getDeclConstraints schema table_name
+    indexes_decl :: Maybe String <- getDeclIndexes schema table_name constraints 
+    let
+      table_spec = if temporary == "Y" then "GLOBAL TEMPORARY " else ""
+      temporary_decl = 
+        case temporary of
+          "Y" -> case duration of
+                   Just "SYS$TRANSACTION" -> "\nON COMMIT DELETE ROWS"
+                   Just "SYS$SESSION"     -> "\nON COMMIT PRESERVE ROWS"
+                   _                 -> ""
+          _ -> ""
+
+      decl :: String =
+        printf "\
+                \CREATE %sTABLE %s\n\
+                \ (\n\
+                \%s\n\
+                \ )%s\n\
+                \/\n" table_spec (getSafeName table_name) columns_decl temporary_decl
+        ++
+        maybe "" (printf "\nCOMMENT ON TABLE %s IS '%s'\n/\n" (getSafeName table_name)) comments
+        ++
+        maybe "" id columns_comment_decl
+        ++
+        maybe "" ("\n"++) constraints_decl
+        ++
+        maybe "" ("\n"++) indexes_decl
+              
+    liftIO $ write2File (o_output_dir opts) table_name "tab" decl
+  
   return ()
 
+  where
+    -- Получение деклараций колонок таблицы
+    getDeclColumns schema table_name = do
+          let
+            -- Получение декларации для колонки таблицы
+            getColumnDecl (column_name, data_type, data_length, data_precision, data_scale, nullable, data_default) =
+                printf "  %s %s" (getSafeName column_name) data_type
+                ++
+                -- Обрабатываем тип даннх
+                case data_type of
+                  "CHAR"     -> printf "(%d)" data_length
+                  "VARCHAR2" -> printf "(%d)" data_length
+                  "NUMBER"   -> case data_precision of
+                                  Nothing -> ""
+                                  Just data_precision' -> "("
+                                                          ++
+                                                          show data_precision'
+                                                          ++
+                                                          case data_scale of
+                                                            Nothing -> ""
+                                                            Just 0 -> ""
+                                                            Just data_scale' -> printf ",%d" data_scale'
+                                                          ++
+                                                          ")"
+                  _ -> ""
+                ++
+                -- Значение поумолчанию
+                case data_default of
+                  Nothing -> ""
+                  Just data_default' -> " DEFAULT " ++ dropWhileEnd isSpace data_default'
+                ++
+                -- Nullable
+                if nullable == "N" then " NOT NULL" else ""
+  
+  
+          let sql_columns' :: String =
+                printf "\
+                        \select column_name,        \n\
+                        \       data_type,          \n\
+                        \       data_length,        \n\
+                        \       data_precision,     \n\
+                        \       data_scale,         \n\
+                        \       nullable,           \n\
+                        \       data_default        \n\
+                        \  from sys.all_tab_columns \n\
+                        \ where owner='%s'          \n\
+                        \   and table_name='%s'     \n\
+                        \order by column_id         \n" schema table_name
+        
+              iter :: (Monad m) => String -> String -> Integer -> Maybe Integer -> Maybe Integer -> String -> Maybe String
+                      -> IterAct m [(String, String, Integer, Maybe Integer, Maybe Integer, String, Maybe String)]
+              iter a1 a2 a3 a4 a5 a6 a7 accum = result' ((a1,a2,a3,a4,a5,a6,a7):accum)
+      
+          columns_r <- reverse `liftM` doQuery (sql sql_columns') iter []
+  
+          return . concat . intersperse ",\n" $ map getColumnDecl columns_r
+
+
+    -- Обрабатываем комментарии для колонок
+    getDeclColumnsComment schema table_name = do
+          let
+              getColumnComment (column_name, comments) =
+                case comments of
+                  Just comments' -> Just $ printf "COMMENT ON COLUMN %s.%s IS '%s'\n/\n"
+                                           (getSafeName table_name)
+                                           (getSafeName column_name)
+                                           comments'
+                  Nothing -> Nothing
+    
+              sql' :: String = printf
+                     "select column_name, comments \n\
+                     \  from sys.all_col_comments  \n\
+                     \ where owner='%s'            \n\
+                     \   and table_name='%s'       \n\
+                     \order by column_name         " schema table_name
+              iter :: (Monad m) => String -> Maybe String -> IterAct m [(String, Maybe String)]
+              iter a1 a2 accum = result' ((a1,a2):accum)
+   
+          columns_comments_accum <- reverse `liftM` doQuery (sql sql') iter []
+      
+          let x = concat . map ("\n" ++) . catMaybes . map getColumnComment $ columns_comments_accum
+          return $ if null x then Nothing else Just x
+
+
+    -- Обрабатываем констрэйнты
+    getDeclConstraints schema table_name = do
+          let
+            getConstraintDecl (constraint_name, constraint_type, search_condition, r_owner, r_constraint_name, delete_rule, status) = do
+              case constraint_type of
+                "P" -> -- Primary key
+                       getConstraintDecl' "PRIMARY KEY"
+                "R" -> -- Foreign key
+                       getConstraintDecl' "FOREIGN KEY"
+                "U" -> -- Uniq key
+                       getConstraintDecl' "UNIQUE"
+                "C" -> case search_condition of
+                         Nothing -> return Nothing
+                         Just sc ->
+                           if (map toLower sc) =~ "^[ \n\r\t\0]*[^ \n\r\t\0]+[ \n\r\t\0]+is[ \n\r\t\0]+not[ \n\r\t\0]+null[ \n\r\t\0]*$" :: Bool
+                           then return Nothing -- это просто условие not null
+                           else getConstraintDecl' $ "CHECK (" ++ sc ++ ")"
+                "V" -> return Nothing
+                _   -> return Nothing
+              -- ++
+              -- case columns_decl of
+              --   Nothing -> ""
+              --   Just c -> " " ++ c
+                
+              
+              where
+
+                getConstraintDecl' ctype = do
+                  columns_decl :: Maybe String <- getDeclConstraintColumns
+                  tail_decl :: String <- getDeclConstraintTail
+
+                  return . Just $ getCommonConstraintHeadDecl ctype ++ maybe "" (" " ++) columns_decl ++ tail_decl
+
+                  where
+                    getCommonConstraintHeadDecl type_decl =
+                        printf "ALTER TABLE %s\n  ADD%s %s"
+                               (getSafeName table_name)
+                               (if "SYS_" `isPrefixOf` (map toUpper constraint_name)
+                                then ""
+                                else " CONSTRAINT " ++ getSafeName constraint_name)
+                               type_decl
+
+                -- Формируем декларацию списка полей включённых в констрэйнт
+                getDeclConstraintColumns = do
+                  let
+                    sql' = printf 
+                             "select column_name            \n\
+                             \  from sys.all_cons_columns   \n\
+                             \ where owner='%s'             \n\
+                             \   and table_name='%s'        \n\
+                             \   and constraint_name = '%s' \n\
+                             \order by position             " schema table_name constraint_name
+                    iter :: (Monad m) => String -> IterAct m [String]
+                    iter a1 accum = result' ((a1):accum)
+                  
+                  r <- reverse `liftM` doQuery (sql sql') iter []
+                 
+                  let
+                    columns = filter (not . null) $ flip map r $ \column_name ->
+                      case constraint_type of
+                        "P" -> column_name
+                        "R" -> column_name
+                        "U" -> column_name
+                        _ -> ""
+                  
+                  return $ case columns of
+                             [] -> Nothing
+                             _  -> Just $ printf "(%s)" $ concat . intersperse "," $ columns
+              
+                -- Формируем заклччительную часть констрэйнта
+                getDeclConstraintTail = do
+
+                  part1 <- case constraint_type of
+                    "R" -> do -- Foreign key
+                      let
+                        stm = sqlbind
+                               "select column_name,           \n\
+                               \       table_name             \n\
+                               \  from sys.all_cons_columns   \n\
+                               \ where owner = ?              \n\
+                               \   and constraint_name = ?    \n\
+                               \order by position             " [bindP $ fromJust r_owner, bindP $ fromJust r_constraint_name]
+                        iter :: (Monad m) => String -> String -> IterAct m [(String, String)]
+                        iter a1 a2 accum = result' ((a1,a2):accum)
+    
+                      r <- reverse `liftM` doQuery stm iter []
+
+                      ref_part <-
+                        case r of
+                          [] -> do liftIO . printWarning $ "Error while processing constraint " ++ constraint_name
+                                   return ""
+                          _  -> do let x = concat . intersperse "," $ map (\(column_name, _) -> column_name) r
+                                   return $ printf "\n      REFERENCES %s(%s)" (snd . head $ r) x
+
+                      let delete_part = case delete_rule of
+                                          Just "CASCADE" -> "\n  ON DELETE CASCADE"
+                                          _ -> ""
+
+                      return $ ref_part ++ delete_part
+
+                    _ -> return ""
+
+                  status_part <- case status of
+                    "ENABLED" -> return ""
+                    "DISABLED" -> return "\n  DISABLE"
+                    _ -> do let msg = printf "Unknown constraint status '%s' for constraint '%s'" status constraint_name
+                            liftIO . printWarning $ msg
+                            return $ "\n-- " ++ msg
+
+                  return $ part1 ++ status_part
+
+          let
+            sql' :: String = printf
+                   "select constraint_name,                                            \n\
+                   \       constraint_type,                                            \n\
+                   \       search_condition,                                           \n\
+                   \       r_owner,                                                    \n\
+                   \       r_constraint_name,                                          \n\
+                   \       delete_rule,                                                \n\
+                   \       status                                                      \n\
+                   \  from sys.all_constraints                                         \n\
+                   \ where owner='%s'                                                  \n\
+                   \   and table_name='%s'                                             \n\
+                   \order by decode(constraint_type, 'P',1, 'R',2, 'U',3, 'C',4, 100), \n\
+                   \         constraint_name" schema table_name
+            iter :: (Monad m) => String -> String -> Maybe String -> Maybe String -> Maybe String -> Maybe String -> String
+                    -> IterAct m [(String, String, Maybe String, Maybe String, Maybe String, Maybe String, String)]
+            iter a1 a2 a3 a4 a5 a6 a7 accum = result' ((a1,a2,a3,a4,a5,a6,a7):accum)
+    
+          constraint_accum <- reverse `liftM` doQuery (sql sql') iter []
+
+          let constraints = M.fromList . flip map constraint_accum $ \(constraint_name,_,_,_,_,_,_) -> (constraint_name, ())
+
+          x <- liftM (concat . intersperse "\n" . map (++"\n/\n") . map fromJust . filter isJust) $ mapM getConstraintDecl constraint_accum
+          return $ (if null x then Nothing else Just x, constraints)
+  
+    -- Снимаем индексы
+    getDeclIndexes schema table_name constraints = do
+      let
+        stm = sqlbind
+              "select index_name    \n\
+              \     , uniqueness    \n\
+              \     , table_owner   \n\
+              \--     , table_name  \n\
+              \from sys.all_indexes \n\
+              \where owner=?        \n\
+              \and table_name=?     \n\
+              \order by index_name  "
+              [bindP schema, bindP table_name]
+        iter :: (Monad m) => String -> String -> String -> IterAct m [(String, String, String)]
+        iter a1 a2 a3 accum = result' ((a1,a2,a3):accum)
+
+      r <- (reverse .
+            -- если это индекс для констрэйнта, то пропускаем его
+            filter (\(index_name,_,_) -> not $ M.member index_name constraints))
+           `liftM`
+           doQuery stm iter []
+
+      indexesDecl <- forM r $ \(index_name, uniqueness, table_owner) -> do
+
+        index_columns <- getDeclIndexColumns schema index_name
+        let
+          headerDecl = "CREATE"
+                       ++
+                       (if uniqueness == "UNIQUE" then " UNIQUE" else "")
+                       ++
+                       " INDEX " ++ getSafeName index_name
+                       ++
+                       (if table_owner == schema
+                        then printf "\n ON %s\n" (getSafeName table_name)
+                        else printf "\n ON %s.%s\n" (getSafeName table_owner) (getSafeName table_name))
+                       ++ "  (\n" ++ (concat . intersperse ",\n" . map ("   "++)) index_columns ++ "\n  )"
+
+        return headerDecl
+
+      if null indexesDecl
+      then return Nothing
+      else return . Just $ (concat . intersperse "\n/\n\n" $ indexesDecl) ++ "\n/\n"
+
+      where
+        getDeclIndexColumns schema index_name = do
+          let
+            stm1 =
+              sqlbind "select column_name         \n\
+                      \     , column_position     \n\
+                      \     , descend             \n\
+                      \  from sys.all_ind_columns \n\
+                      \ where index_owner=?       \n\
+                      \   and index_name=?        \n\
+                      \order by column_position   " [bindP schema, bindP index_name]
+            stm2 =
+              sqlbind "select column_name         \n\
+                      \     , column_position     \n\
+                      \     , '' as descend       \n\
+                      \  from sys.all_ind_columns \n\
+                      \ where index_owner=?       \n\
+                      \   and index_name=?        \n\
+                      \order by column_position   " [bindP schema, bindP index_name]
+            iter :: (Monad m) => String -> Integer -> String -> IterAct m [(String, Integer, String)]
+            iter a1 a2 a3 accum = result ((a1,a2,a3):accum)
+          
+          
+          column_index_expressions_map <- getIndexColumnExpressions
+          r <- reverse `liftM`
+               catchDB (doQuery stm1 iter []) (\_ -> doQuery stm2 iter [])
+
+          return $ map (getDeclColumnIndex column_index_expressions_map) r
+
+
+            where
+              -- Табицы all_ind_expressions не было в Oracle 7, поэтому строим хэш column_expression
+              -- по ключу номера колонки отдельно.
+              getIndexColumnExpressions = do
+                let
+                  stmb = sqlbind "select column_position         \n\
+                                 \     , column_expression       \n\
+                                 \  from sys.all_ind_expressions \n\
+                                 \ where index_owner=?           \n\
+                                 \   and index_name=?            " [bindP schema, bindP index_name]
+                  iter :: (Monad m) => Integer -> String -> IterAct m (M.Map Integer String)
+                  iter cp ce accum = result' $ M.insert cp ce accum
+
+                m  <- doQuery stmb iter M.empty
+                return m
+
+              -- Возвращает декларацию колонки индекса
+              getDeclColumnIndex column_index_expressions_map (column_name, column_position, descend) =
+                strip $ M.findWithDefault column_name column_position column_index_expressions_map
+                ++
+                (if map toUpper descend == "DECS" then " DESC" else "")
+
+        
+      

@@ -4,7 +4,8 @@ module Utils
    stringCSI,
    printWarning,
    CharParser,
-   isSpace
+   isSpace,
+   strip
   )
 where
 
@@ -22,6 +23,8 @@ type CharParser st = GenParser Char st
 isSpace :: Char -> Bool
 isSpace c =
   ord c <= ord ' '
+
+strip = dropWhile isSpace . dropWhileEnd isSpace
 
 clearSqlSource :: String -> String
 clearSqlSource src =
