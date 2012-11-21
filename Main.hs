@@ -24,7 +24,7 @@ data Flags = Flags
                list :: Maybe [String],
                listf :: Maybe FilePath,
                directory :: String,
-               save_end_spaces :: Bool
+               saveEndSpaces :: Bool
              } deriving (Show, Data, Typeable)
 
 getOpts :: IO Flags
@@ -53,7 +53,7 @@ getOpts = do
             &= explicit &= name "dir"
             &= typ "DIRNAME"
             &= help "Directory where to put files whith SQL (default is current directory)",
-          save_end_spaces =
+          saveEndSpaces =
             def
             &= explicit &= name "save-end-spaces"
             &= help "By default insignificant spaces at end of each line are deleted, this option prevent this behavior"
@@ -85,25 +85,25 @@ translateOptions flags = do
   return
    Options
    {
-    o_conn = fromJust $ conn flags,
-    o_schema = schema flags,
-    o_obj_list = obj_list,
-    o_output_dir = directory flags,
-    o_save_end_spaces = save_end_spaces flags
+    oConn = fromJust $ conn flags,
+    oSchema = schema flags,
+    oObjList = obj_list,
+    oOutputDir = directory flags,
+    oSaveEndSpaces = saveEndSpaces flags
     }
   where
     getObjList = do
       ox <- case listf flags of
         Just f -> do
           lx <- lines `liftM` readFile f
-          return [ (dropWhileEnd isSpace) . (dropWhile isSpace) $ x
+          return [ dropWhileEnd isSpace . dropWhile isSpace $ x
                  | x <- lx,
                    not . all isSpace $ x,
                    not . null $ x
                  ]
         _ -> return []
       
-      let x = M.keys $ M.fromList $ map (\x -> (x,())) $ ox ++ (fromMaybe [] (list flags))
+      let x = M.keys $ M.fromList $ map (\x -> (x,())) $ ox ++ fromMaybe [] (list flags)
       return $ if null x then Nothing else Just x
 
 

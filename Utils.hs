@@ -47,7 +47,7 @@ parseSql = do
   return $ s1 ++ [s2]
 
 sqlPart :: CharParser st String
-sqlPart = do
+sqlPart =
   sqlLiteral <|> sqlComment <|> sqlEndLineComment <|> sqlCode
 
 sqlLiteral :: CharParser st String
@@ -59,9 +59,9 @@ sqlLiteral = do
 
 sqlComment :: CharParser st String
 sqlComment = do
-  (try $ string start) <?> "comment start (/*)"
+  try (string start) <?> "comment start (/*)"
   s1 <- manyTill normalizeEOLs (try $ lookAhead $ string end)
-  (try $ string end) <?> "comment end (*/)"
+  try (string end) <?> "comment end (*/)"
   return $ start ++ dropEndLineSpaces s1 ++ end
   where
     start = "/*"
@@ -69,7 +69,7 @@ sqlComment = do
   
 sqlEndLineComment :: CharParser st String
 sqlEndLineComment = do
-  (try $ string "--") <?> "line comment start (--)"
+  try (string "--") <?> "line comment start (--)"
   s1 <- manyTill clearedChar (lookAhead $ eol <|> (eof >> return ""))
   s2 <- eol <|> (eof >> return "")
   return $ "--" ++ dropWhileEnd isSpace s1 ++ s2
@@ -80,7 +80,7 @@ sqlCode = do
   return $ dropEndLineSpaces s
 
 eol :: CharParser st String
-eol = do
+eol =
   ( try (string "\n\r")
     <|>
     try (string "\r\n")
@@ -91,13 +91,13 @@ eol = do
     <?> "end of line" ) >> return "\n"
 
 normalizeEOLs :: CharParser st Char
-normalizeEOLs = do
+normalizeEOLs =
   (try eol >> return '\n')
   <|>
   clearedChar
 
 clearedChar :: CharParser st Char
-clearedChar = do
+clearedChar =
   (char '\0' >> return ' ')
   <|> 
   anyChar
@@ -110,13 +110,13 @@ dropEndLineSpaces s =
     ls = lines s
     lastLine = last ls
     initLines' = unlines $ map (dropWhileEnd isSpace) $ init ls
-    lastLine' = if endEol then (dropWhileEnd isSpace lastLine) ++ "\n" else lastLine
+    lastLine' = if endEol then dropWhileEnd isSpace lastLine ++ "\n" else lastLine
   in
     initLines' ++ lastLine'
 
 -- | Case and count of spaces insensitive variant of 'string'
 stringCSI :: String -> CharParser st String
-stringCSI pattern = do
+stringCSI pattern =
   try $ foldl glue (return "") $ map test (unwords $ words pattern)
   where test x = if isSpace x
                  then space >> spaces >> return " "

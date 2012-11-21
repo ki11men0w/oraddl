@@ -4,7 +4,7 @@ module RetrieveDDL where
 
 import System.IO
 import System.FilePath
-import Data.Maybe (fromJust, isNothing, isJust, catMaybes)
+import Data.Maybe (fromJust, isNothing, isJust, mapMaybe, fromMaybe)
 import Data.List
 import Data.Char (toUpper, toLower)
 
@@ -31,20 +31,19 @@ import Utils ( clearSqlSource,
 
 data Options = Options
                {
-                 o_conn :: String,
-                 o_schema :: Maybe String,
-                 o_obj_list :: Maybe [String],
-                 o_output_dir :: String,
-                 o_save_end_spaces :: Bool
+                 oConn :: String,
+                 oSchema :: Maybe String,
+                 oObjList :: Maybe [String],
+                 oOutputDir :: String,
+                 oSaveEndSpaces :: Bool
                }
 
 getDefaultSchema = do
   let it :: (Monad m) => String -> IterAct m String
       it a accum = result a
-  r <- doQuery (sql "select user from dual") it []
-  return r
+  doQuery (sql "select user from dual") it []
   
-getSchema schema = do
+getSchema schema =
   case schema of
     Just s -> return s
     _      -> getDefaultSchema
@@ -83,11 +82,11 @@ getUnionAll lst =
 
 retreiveDDL :: Options -> IO ()
 retreiveDDL opts = do
-  let (user, password, db) = decodeConnectString $ o_conn opts
+  let (user, password, db) = decodeConnectString $ oConn opts
   withSession (connect user password db) $ do
     
-    schema' <- getSchema $ o_schema opts
-    let opts' = opts {o_schema = Just schema'}
+    schema' <- getSchema $ oSchema opts
+    let opts' = opts {oSchema = Just schema'}
     
     -- liftIO $ putStr "Yoo! " >> hFlush stdout >> getLine
 
@@ -100,13 +99,13 @@ retreiveDDL opts = do
 
 
 write2File :: FilePath -> FilePath -> FilePath -> String -> IO ()
-write2File directory name_base name_suffix content = do
-  withFile (directory </> (flip addExtension "sql" . flip addExtension name_suffix $ name_base)) WriteMode $ \h -> do
+write2File directory name_base name_suffix content =
+  withFile (directory </> (flip addExtension "sql" . flip addExtension name_suffix $ name_base)) WriteMode $ \h ->
     hPutStr h content
 
 retrieveViewsDDL opts = do
   let
-    schema = fromJust $ o_schema opts
+    schema = fromJust $ oSchema opts
   
   let
     queryIteratee :: (Monad m) => String -> String -> Maybe String -> IterAct m [(String, String, Maybe String)]
@@ -119,9 +118,9 @@ retrieveViewsDDL opts = do
            \   and a.owner = b.owner(+)            \n\
            \   and a.view_name=b.table_name(+)     \n" schema
            ++
-           if isNothing $ o_obj_list opts
+           if isNothing $ oObjList opts
            then ""
-           else printf " and a.view_name in (%s) " $ getUnionAll $ fromJust $ o_obj_list opts
+           else printf " and a.view_name in (%s) " $ getUnionAll $ fromJust $ oObjList opts
   
   r <- reverse `liftM` doQuery (sql sql') queryIteratee []
   
@@ -143,15 +142,15 @@ retrieveViewsDDL opts = do
             \   and table_name = ?        \n\
             \ order by column_name        \n" [bindP schema, bindP view_name]
     r <- (filter (\(_, x) -> isJust x) . reverse) `liftM` doQuery stm qryItr []
-    let column_comments :: String = concat $ flip map r $ \(column_name, comments) -> do
+    let column_comments :: String = concat $ flip map r $ \(column_name, comments) ->
           printf "\nCOMMENT ON COLUMN %s.%s IS '%s'\n/\n" (getSafeName view_name) (getSafeName column_name) (clearSqlSource $ fromJust comments) :: String
     
-    liftIO $ write2File (o_output_dir opts) view_name "vew" $ create ++ comment ++ column_comments
+    liftIO $ write2File (oOutputDir opts) view_name "vew" $ create ++ comment ++ column_comments
 
 
 retrieveSourcesDDL opts = do
   let
-    schema = fromJust $ o_schema opts
+    schema = fromJust $ oSchema opts
   
   let
     queryIteratee :: (Monad m) => String -> String -> String -> IterAct m [(String, String, String)]
@@ -162,13 +161,13 @@ retrieveSourcesDDL opts = do
                   \   and type in ('PACKAGE','PACKAGE BODY','PROCEDURE','FUNCTION', \n\
                   \                'TYPE', 'TYPE BODY', 'JAVA SOURCE')              \n" schema
            ++
-           (if isNothing $ o_obj_list opts
+           (if isNothing $ oObjList opts
             then ""
-            else printf " and name in (%s) \n" $ getUnionAll $ fromJust $ o_obj_list opts)
+            else printf " and name in (%s) \n" $ getUnionAll $ fromJust $ oObjList opts)
            ++
            " order by owner,type,name,line "
 
-  r <- ((groupBy (\(n1,t1,_) (n2,t2,_) -> n1 == n2 && t1 == t2)) . reverse)
+  r <- (groupBy (\(n1,t1,_) (n2,t2,_) -> n1 == n2 && t1 == t2) . reverse)
        `liftM`
        doQuery (sql sql') queryIteratee []
 
@@ -176,7 +175,7 @@ retrieveSourcesDDL opts = do
     let
       (name, type', _) = head x
       text :: String
-      text = foldr (++) "" $ map (\(_,_,text) -> text) x
+      text = foldr ((++) . (\ (_, _, text) -> text)) "" x
     
       safe_name = getSafeName name
 
@@ -210,10 +209,10 @@ retrieveSourcesDDL opts = do
                     Left e -> do liftIO . printWarning $ show e
                                  return text
         let text''' = printf "CREATE OR REPLACE\n%s\n/\n" $ clearSqlSource text''
-        liftIO $ write2File (o_output_dir opts) name suffix text'''
+        liftIO $ write2File (oOutputDir opts) name suffix text'''
       saveJava = do
         let text''' = printf "CREATE OR REPLACE AND COMPILE JAVA SOURCE NAMED %s AS\n%s" safe_name text
-        liftIO $ withFile (o_output_dir opts </> (addExtension name "java")) WriteMode $ \h -> hPutStr h text'''
+        liftIO $ withFile (oOutputDir opts </> addExtension name "java") WriteMode $ \h -> hPutStr h text'''
     case type' of
       "PACKAGE" -> saveSQL "pkg"
       "PACKAGE BODY" -> saveSQL "pkb"
@@ -228,7 +227,7 @@ retrieveSourcesDDL opts = do
 
 retrieveTriggersDDL opts = do
   let
-    schema = fromJust $ o_schema opts
+    schema = fromJust $ oSchema opts
   
   let
     queryIteratee :: (Monad m) => String -> String -> String -> String -> String -> IterAct m [(String, String, String, String, String)]
@@ -237,9 +236,9 @@ retrieveTriggersDDL opts = do
                   \  from sys.all_triggers                                          \n\
                   \ where owner='%s'                                                \n" schema
            ++
-           (if isNothing $ o_obj_list opts
+           (if isNothing $ oObjList opts
             then ""
-            else printf " and trigger_name in (%s) \n" $ getUnionAll $ fromJust $ o_obj_list opts)
+            else printf " and trigger_name in (%s) \n" $ getUnionAll $ fromJust $ oObjList opts)
 
   r <- reverse `liftM` doQuery (sql sql') queryIteratee []
   
@@ -284,7 +283,7 @@ retrieveTriggersDDL opts = do
                          ++
                          -- Если после имени тригера нет пробела, то добавляем его
                          case x of
-                           x1:_ -> if isSpace x1 then x else " " ++ x
+                           x1:_ -> if isSpace x1 then x else ' ' : x
                            _    -> x
                      ) safe_name descr
     descr'' <- case descr' of
@@ -297,13 +296,13 @@ retrieveTriggersDDL opts = do
              then text' ++ printf "\nALTER TRIGGER %s DISABLE\n/\n" safe_name
              else text'
     
-    liftIO $ write2File (o_output_dir opts) name "trg" text
+    liftIO $ write2File (oOutputDir opts) name "trg" text
 
   return ()
 
 retrieveSynonymsDDL opts = do
   let
-    schema = fromJust $ o_schema opts
+    schema = fromJust $ oSchema opts
   
   let
     iter :: (Monad m) => Bool -> IterAct m Bool
@@ -328,9 +327,9 @@ retrieveSynonymsDDL opts = do
             \  from sys.all_synonyms \n\
             \ where owner='%s'       \n"
             ++
-           (if isNothing $ o_obj_list opts
+           (if isNothing $ oObjList opts
             then ""
-            else printf " and synonym_name in (%s) \n" $ getUnionAll $ fromJust $ o_obj_list opts)
+            else printf " and synonym_name in (%s) \n" $ getUnionAll $ fromJust $ oObjList opts)
 
     sql' = printf sql''
             (if dbLinkColumnExists then "db_link" else "null")
@@ -346,7 +345,7 @@ retrieveSynonymsDDL opts = do
       text :: String = case table_owner of
         Nothing ->
            printf "CREATE SYNONYM %s\n\
-                  \           FOR %s@%s\n/\n" safe_name (getSafeName table_name) (getSafeName2 $ maybe "" id db_link)
+                  \           FOR %s@%s\n/\n" safe_name (getSafeName table_name) (getSafeName2 $ fromMaybe "" db_link)
         Just table_owner'
          | getSafeName table_owner'  == getSafeName schema ->
            printf "CREATE SYNONYM %s\n\
@@ -355,12 +354,12 @@ retrieveSynonymsDDL opts = do
            printf "CREATE SYNONYM %s\n\
                   \           FOR %s.%s\n/\n" safe_name table_owner' (getSafeName table_name) 
 
-    liftIO $ write2File (o_output_dir opts) synonym_name "syn" text
+    liftIO $ write2File (oOutputDir opts) synonym_name "syn" text
 
 
 retrieveSequencesDDL opts = do
   let
-    schema = fromJust $ o_schema opts
+    schema = fromJust $ oSchema opts
   
   let
     iter :: (Monad m) => String -> String -> String -> String -> String -> Integer -> String -> String
@@ -380,9 +379,9 @@ retrieveSequencesDDL opts = do
            \ where sequence_owner='%s'                   \n"
            schema
            ++
-           (if isNothing $ o_obj_list opts
+           (if isNothing $ oObjList opts
             then ""
-            else printf " and sequence_name in (%s) \n" $ getUnionAll $ fromJust $ o_obj_list opts)
+            else printf " and sequence_name in (%s) \n" $ getUnionAll $ fromJust $ oObjList opts)
 
 
   r <- reverse `liftM` doQuery (sql sql') iter []
@@ -412,12 +411,12 @@ retrieveSequencesDDL opts = do
              "/\n"
              
 
-    liftIO $ write2File (o_output_dir opts) sequence_name "seq" decl
+    liftIO $ write2File (oOutputDir opts) sequence_name "seq" decl
     
 
 retrieveTablesDDL opts = do
   let
-    schema = fromJust $ o_schema opts
+    schema = fromJust $ oSchema opts
   
     sql' = printf
            "select a.table_name, b.comments, a.temporary, a.duration \n\
@@ -428,9 +427,9 @@ retrieveTablesDDL opts = do
            \   and a.table_name=b.table_name \n"
            schema schema
            ++
-           (if isNothing $ o_obj_list opts
+           (if isNothing $ oObjList opts
             then ""
-            else printf " and a.table_name in (%s) \n" $ getUnionAll $ fromJust $ o_obj_list opts)
+            else printf " and a.table_name in (%s) \n" $ getUnionAll $ fromJust $ oObjList opts)
    
     iter :: (Monad m) => String -> Maybe String -> String -> Maybe String -> IterAct m [(String, Maybe String, String, Maybe String)]
     iter a1 a2 a3 a4 accum = result $ (a1,a2,a3,a4):accum
@@ -465,13 +464,13 @@ retrieveTablesDDL opts = do
         ++
         maybe "" (printf "\nCOMMENT ON TABLE %s IS '%s'\n/\n" (getSafeName table_name)) comments
         ++
-        maybe "" id columns_comment_decl
+        fromMaybe "" columns_comment_decl
         ++
         maybe "" ("\n"++) constraints_decl
         ++
         maybe "" ("\n"++) indexes_decl
               
-    liftIO $ write2File (o_output_dir opts) table_name "tab" decl
+    liftIO $ write2File (oOutputDir opts) table_name "tab" decl
   
   return ()
 
@@ -530,7 +529,7 @@ retrieveTablesDDL opts = do
       
           columns_r <- reverse `liftM` doQuery (sql sql_columns') iter []
   
-          return . concat . intersperse ",\n" $ map getColumnDecl columns_r
+          return . intercalate ",\n" $ map getColumnDecl columns_r
 
 
     -- Обрабатываем комментарии для колонок
@@ -555,14 +554,14 @@ retrieveTablesDDL opts = do
    
           columns_comments_accum <- reverse `liftM` doQuery (sql sql') iter []
       
-          let x = concat . map ("\n" ++) . catMaybes . map getColumnComment $ columns_comments_accum
+          let x = concatMap ("\n" ++) . mapMaybe getColumnComment $ columns_comments_accum
           return $ if null x then Nothing else Just x
 
 
     -- Обрабатываем констрэйнты
     getDeclConstraints schema table_name = do
           let
-            getConstraintDecl (constraint_name, constraint_type, search_condition, r_owner, r_constraint_name, delete_rule, status) = do
+            getConstraintDecl (constraint_name, constraint_type, search_condition, r_owner, r_constraint_name, delete_rule, status) =
               case constraint_type of
                 "P" -> -- Primary key
                        getConstraintDecl' "PRIMARY KEY"
@@ -594,13 +593,12 @@ retrieveTablesDDL opts = do
                   return . Just $ getCommonConstraintHeadDecl ctype ++ maybe "" (" " ++) columns_decl ++ tail_decl
 
                   where
-                    getCommonConstraintHeadDecl type_decl =
+                    getCommonConstraintHeadDecl =
                         printf "ALTER TABLE %s\n  ADD%s %s"
                                (getSafeName table_name)
-                               (if "SYS_" `isPrefixOf` (map toUpper constraint_name)
+                               (if "SYS_" `isPrefixOf` map toUpper constraint_name
                                 then ""
                                 else " CONSTRAINT " ++ getSafeName constraint_name)
-                               type_decl
 
                 -- Формируем декларацию списка полей включённых в констрэйнт
                 getDeclConstraintColumns = do
@@ -613,7 +611,7 @@ retrieveTablesDDL opts = do
                              \   and constraint_name = '%s' \n\
                              \order by position             " schema table_name constraint_name
                     iter :: (Monad m) => String -> IterAct m [String]
-                    iter a1 accum = result ((a1):accum)
+                    iter a1 accum = result (a1:accum)
                   
                   r <- reverse `liftM` doQuery (sql sql') iter []
                  
@@ -627,7 +625,7 @@ retrieveTablesDDL opts = do
                   
                   return $ case columns of
                              [] -> Nothing
-                             _  -> Just $ printf "(%s)" $ concat . intersperse "," $ columns
+                             _  -> Just $ printf "(%s)" $ intercalate "," columns
               
                 -- Формируем заклччительную часть констрэйнта
                 getDeclConstraintTail = do
@@ -651,7 +649,7 @@ retrieveTablesDDL opts = do
                         case r of
                           [] -> do liftIO . printWarning $ "Error while processing constraint " ++ constraint_name
                                    return ""
-                          _  -> do let x = concat . intersperse "," $ map (\(column_name, _) -> column_name) r
+                          _  -> do let x = intercalate "," $ map fst r
                                    return $ printf "\n      REFERENCES %s(%s)" (snd . head $ r) x
 
                       let delete_part = case delete_rule of
@@ -693,8 +691,8 @@ retrieveTablesDDL opts = do
 
           let constraints = M.fromList . flip map constraint_accum $ \(constraint_name,_,_,_,_,_,_) -> (constraint_name, ())
 
-          x <- liftM (concat . intersperse "\n" . map (++"\n/\n") . map fromJust . filter isJust) $ mapM getConstraintDecl constraint_accum
-          return $ (if null x then Nothing else Just x, constraints)
+          x <- liftM (intercalate "\n" . map ((++"\n/\n") . fromJust) . filter isJust) $ mapM getConstraintDecl constraint_accum
+          return (if null x then Nothing else Just x, constraints)
   
     -- Снимаем индексы
     getDeclIndexes schema table_name constraints = do
@@ -731,13 +729,13 @@ retrieveTablesDDL opts = do
                        (if table_owner == schema
                         then printf "\n ON %s\n" (getSafeName table_name)
                         else printf "\n ON %s.%s\n" (getSafeName table_owner) (getSafeName table_name))
-                       ++ "  (\n" ++ (concat . intersperse ",\n" . map ("   "++)) index_columns ++ "\n  )"
+                       ++ "  (\n" ++ (intercalate ",\n" . map ("   "++)) index_columns ++ "\n  )"
 
         return headerDecl
 
       if null indexesDecl
       then return Nothing
-      else return . Just $ (concat . intersperse "\n/\n\n" $ indexesDecl) ++ "\n/\n"
+      else return . Just $ intercalate "\n/\n\n" indexesDecl ++ "\n/\n"
 
       where
         getDeclIndexColumns schema index_name = do
@@ -782,8 +780,7 @@ retrieveTablesDDL opts = do
                   iter :: (Monad m) => Integer -> String -> IterAct m (M.Map Integer String)
                   iter cp ce accum = result $ M.insert cp ce accum
 
-                m  <- doQuery stmb iter M.empty
-                return m
+                doQuery stmb iter M.empty
 
               -- Возвращает декларацию колонки индекса
               getDeclColumnIndex column_index_expressions_map (column_name, column_position, descend) =
