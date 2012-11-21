@@ -5,7 +5,8 @@ module Utils
    printWarning,
    CharParser,
    isSpace,
-   strip
+   strip,
+   parseMatch
   )
 where
 
@@ -25,6 +26,11 @@ isSpace c =
   ord c <= ord ' '
 
 strip = dropWhile isSpace . dropWhileEnd isSpace
+
+parseMatch txt pars =
+  case parse pars "(unknown)" txt of
+       Left _  -> False
+       Right _ -> True
 
 clearSqlSource :: String -> String
 clearSqlSource src =

@@ -16,7 +16,7 @@ import Database.Oracle.Enumerator
 
 import Text.Parsec
 
-import Text.Regex.TDFA
+--import Text.Regex.TDFA
 
 import qualified Data.Map as M
 
@@ -25,7 +25,8 @@ import Utils ( clearSqlSource,
                stringCSI,
                printWarning,
                isSpace,
-               strip
+               strip,
+               parseMatch
              )
 
 data Options = Options
@@ -39,7 +40,7 @@ data Options = Options
 
 getDefaultSchema = do
   let it :: (Monad m) => String -> IterAct m String
-      it a accum = result' a
+      it a accum = result a
   r <- doQuery (sql "select user from dual") it []
   return r
   
@@ -109,7 +110,7 @@ retrieveViewsDDL opts = do
   
   let
     queryIteratee :: (Monad m) => String -> String -> Maybe String -> IterAct m [(String, String, Maybe String)]
-    queryIteratee a b c accum = result' ((a, b, c):accum)
+    queryIteratee a b c accum = result ((a, b, c):accum)
     sql'  = printf
            "select a.view_name, a.text, b.comments \n\
            \  from sys.all_views a,                \n\
@@ -134,7 +135,7 @@ retrieveViewsDDL opts = do
           Nothing -> ""
     let
       qryItr :: (Monad m) => String -> Maybe String -> IterAct m [(String, Maybe String)]
-      qryItr a b accum = result' ((a,b):accum)
+      qryItr a b accum = result ((a,b):accum)
       stm = sqlbind
             "select column_name, comments \n\
             \  from sys.all_col_comments  \n\
@@ -154,7 +155,7 @@ retrieveSourcesDDL opts = do
   
   let
     queryIteratee :: (Monad m) => String -> String -> String -> IterAct m [(String, String, String)]
-    queryIteratee a b c accum = result' ((a, b, c):accum)
+    queryIteratee a b c accum = result ((a, b, c):accum)
     sql' = printf "select name, type, text                                          \n\
                   \  from sys.all_source                                            \n\
                   \ where owner='%s'                                                \n\ 
@@ -231,7 +232,7 @@ retrieveTriggersDDL opts = do
   
   let
     queryIteratee :: (Monad m) => String -> String -> String -> String -> String -> IterAct m [(String, String, String, String, String)]
-    queryIteratee a b c d e accum = result' ((a, b, c, d, e):accum)
+    queryIteratee a b c d e accum = result ((a, b, c, d, e):accum)
     sql' = printf "select owner,trigger_name,description,trigger_body,status        \n\
                   \  from sys.all_triggers                                          \n\
                   \ where owner='%s'                                                \n" schema
@@ -306,7 +307,7 @@ retrieveSynonymsDDL opts = do
   
   let
     iter :: (Monad m) => Bool -> IterAct m Bool
-    iter a accum = result' a
+    iter a accum = result a
     -- Определяем есть ли колонка DB_LINK
     sql' = "select 'True'                    \n\
            \  from sys.all_tab_columns       \n\
@@ -318,7 +319,7 @@ retrieveSynonymsDDL opts = do
 
   let
     iter :: (Monad m) => String -> String -> Maybe String -> String -> Maybe String -> IterAct m [(String, String, Maybe String, String, Maybe String)]
-    iter a b c d e accum = result' ((a, b, c, d, e):accum)
+    iter a b c d e accum = result ((a, b, c, d, e):accum)
     sql'' = "select owner            \n\
             \      ,synonym_name     \n\
             \      ,table_owner      \n\
@@ -364,7 +365,7 @@ retrieveSequencesDDL opts = do
   let
     iter :: (Monad m) => String -> String -> String -> String -> String -> Integer -> String -> String
             -> IterAct m[(String, String, String, String, String, Integer, String, String)]
-    iter a1 a2 a3 a4 a5 a6 a7 a8 accum = result' ((a1, a2, a3, a4, a5, a6, a7, a8):accum)
+    iter a1 a2 a3 a4 a5 a6 a7 a8 accum = result ((a1, a2, a3, a4, a5, a6, a7, a8):accum)
     
     sql' = printf
            "select sequence_name                         \n\
@@ -432,7 +433,7 @@ retrieveTablesDDL opts = do
             else printf " and a.table_name in (%s) \n" $ getUnionAll $ fromJust $ o_obj_list opts)
    
     iter :: (Monad m) => String -> Maybe String -> String -> Maybe String -> IterAct m [(String, Maybe String, String, Maybe String)]
-    iter a1 a2 a3 a4 accum = result' $ (a1,a2,a3,a4):accum
+    iter a1 a2 a3 a4 accum = result $ (a1,a2,a3,a4):accum
 
   tables <- reverse `liftM` doQuery (sql sql') iter []
 
@@ -525,7 +526,7 @@ retrieveTablesDDL opts = do
         
               iter :: (Monad m) => String -> String -> Integer -> Maybe Integer -> Maybe Integer -> String -> Maybe String
                       -> IterAct m [(String, String, Integer, Maybe Integer, Maybe Integer, String, Maybe String)]
-              iter a1 a2 a3 a4 a5 a6 a7 accum = result' ((a1,a2,a3,a4,a5,a6,a7):accum)
+              iter a1 a2 a3 a4 a5 a6 a7 accum = result ((a1,a2,a3,a4,a5,a6,a7):accum)
       
           columns_r <- reverse `liftM` doQuery (sql sql_columns') iter []
   
@@ -550,7 +551,7 @@ retrieveTablesDDL opts = do
                      \   and table_name='%s'       \n\
                      \order by column_name         " schema table_name
               iter :: (Monad m) => String -> Maybe String -> IterAct m [(String, Maybe String)]
-              iter a1 a2 accum = result' ((a1,a2):accum)
+              iter a1 a2 accum = result ((a1,a2):accum)
    
           columns_comments_accum <- reverse `liftM` doQuery (sql sql') iter []
       
@@ -572,15 +573,16 @@ retrieveTablesDDL opts = do
                 "C" -> case search_condition of
                          Nothing -> return Nothing
                          Just sc ->
-                           if (map toLower sc) =~ "^[ \n\r\t\0]*[^ \n\r\t\0]+[ \n\r\t\0]+is[ \n\r\t\0]+not[ \n\r\t\0]+null[ \n\r\t\0]*$" :: Bool
+                           -- if (map toLower sc) =~ "^[ \n\r\t\0]*[^ \n\r\t\0]+[ \n\r\t\0]+is[ \n\r\t\0]+not[ \n\r\t\0]+null[ \n\r\t\0]*$" :: Bool
+                           if parseMatch
+                                (map toLower sc)
+                                (manyTill anyChar $
+                                          try (do let spaces1 = skipMany1 space
+                                                  space >> string "is" >> spaces1 >> string "not" >> spaces1 >> string "null" >> spaces >> eof))
                            then return Nothing -- это просто условие not null
                            else getConstraintDecl' $ "CHECK (" ++ sc ++ ")"
                 "V" -> return Nothing
                 _   -> return Nothing
-              -- ++
-              -- case columns_decl of
-              --   Nothing -> ""
-              --   Just c -> " " ++ c
                 
               
               where
@@ -611,7 +613,7 @@ retrieveTablesDDL opts = do
                              \   and constraint_name = '%s' \n\
                              \order by position             " schema table_name constraint_name
                     iter :: (Monad m) => String -> IterAct m [String]
-                    iter a1 accum = result' ((a1):accum)
+                    iter a1 accum = result ((a1):accum)
                   
                   r <- reverse `liftM` doQuery (sql sql') iter []
                  
@@ -641,7 +643,7 @@ retrieveTablesDDL opts = do
                                \   and constraint_name = ?    \n\
                                \order by position             " [bindP $ fromJust r_owner, bindP $ fromJust r_constraint_name]
                         iter :: (Monad m) => String -> String -> IterAct m [(String, String)]
-                        iter a1 a2 accum = result' ((a1,a2):accum)
+                        iter a1 a2 accum = result ((a1,a2):accum)
     
                       r <- reverse `liftM` doQuery stm iter []
 
@@ -685,7 +687,7 @@ retrieveTablesDDL opts = do
                    \         constraint_name" schema table_name
             iter :: (Monad m) => String -> String -> Maybe String -> Maybe String -> Maybe String -> Maybe String -> String
                     -> IterAct m [(String, String, Maybe String, Maybe String, Maybe String, Maybe String, String)]
-            iter a1 a2 a3 a4 a5 a6 a7 accum = result' ((a1,a2,a3,a4,a5,a6,a7):accum)
+            iter a1 a2 a3 a4 a5 a6 a7 accum = result ((a1,a2,a3,a4,a5,a6,a7):accum)
     
           constraint_accum <- reverse `liftM` doQuery (sql sql') iter []
 
@@ -708,7 +710,7 @@ retrieveTablesDDL opts = do
               \order by index_name  "
               [bindP schema, bindP table_name]
         iter :: (Monad m) => String -> String -> String -> IterAct m [(String, String, String)]
-        iter a1 a2 a3 accum = result' ((a1,a2,a3):accum)
+        iter a1 a2 a3 accum = result ((a1,a2,a3):accum)
 
       r <- (reverse .
             -- если это индекс для констрэйнта, то пропускаем его
@@ -778,7 +780,7 @@ retrieveTablesDDL opts = do
                                  \ where index_owner=?           \n\
                                  \   and index_name=?            " [bindP schema, bindP index_name]
                   iter :: (Monad m) => Integer -> String -> IterAct m (M.Map Integer String)
-                  iter cp ce accum = result' $ M.insert cp ce accum
+                  iter cp ce accum = result $ M.insert cp ce accum
 
                 m  <- doQuery stmb iter M.empty
                 return m
