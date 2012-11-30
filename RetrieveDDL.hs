@@ -97,10 +97,17 @@ retreiveDDL opts = do
     retrieveSequencesDDL opts'
     retrieveTablesDDL opts'
 
+normalizeFileName :: FilePath -> FilePath
+normalizeFileName name =
+  flip map name $ \n ->
+    case n of
+      '/'  -> '.'
+      '\\' -> '.'
+      _    -> n
 
 write2File :: FilePath -> FilePath -> FilePath -> String -> IO ()
 write2File directory name_base name_suffix content =
-  withFile (directory </> (flip addExtension "sql" . flip addExtension name_suffix $ name_base)) WriteMode $ \h ->
+  withFile (directory </> (flip addExtension "sql" . flip addExtension name_suffix $ normalizeFileName name_base)) WriteMode $ \h ->
     hPutStr h content
 
 retrieveViewsDDL opts = do
@@ -239,7 +246,7 @@ retrieveSourcesDDL opts = do
           liftIO $ write2File (oOutputDir opts) name suffix text'''
         saveJava = do
           let text''' = printf "CREATE OR REPLACE AND COMPILE JAVA SOURCE NAMED %s AS\n%s" safe_name text
-          liftIO $ withFile (oOutputDir opts </> addExtension name "java") WriteMode $ \h -> hPutStr h text'''
+          liftIO $ withFile (oOutputDir opts </> addExtension (normalizeFileName name) "java") WriteMode $ \h -> hPutStr h text'''
       case type' of
         "PACKAGE" -> saveSQL "pkg"
         "PACKAGE BODY" -> saveSQL "pkb"
