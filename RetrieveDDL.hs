@@ -29,11 +29,30 @@ import Utils ( clearSqlSource,
                parseMatch
              )
 
+data ByTypeLists = ByTypeLists {
+    oTables :: Maybe [String],
+    oViews :: Maybe [String],
+    oSources :: Maybe [String],
+    oSequences :: Maybe [String],
+    oSynonyms :: Maybe [String],
+    oTriggers :: Maybe [String]
+    }
+
+isAtLeastOneTypeSpecified :: ByTypeLists -> Bool
+isAtLeastOneTypeSpecified x =
+  (isJust . oTables) x || 
+  (isJust . oViews) x || 
+  (isJust . oSources) x || 
+  (isJust . oSequences) x || 
+  (isJust . oSynonyms) x || 
+  (isJust . oTriggers) x
+
 data Options = Options
                {
                  oConn :: String,
                  oSchema :: Maybe String,
                  oObjList :: Maybe [String],
+                 oByTypeLists :: ByTypeLists,
                  oOutputDir :: String,
                  oSaveEndSpaces :: Bool
                }
@@ -110,10 +129,31 @@ write2File directory name_base name_suffix content =
   withFile (directory </> (flip addExtension "sql" . flip addExtension name_suffix $ normalizeFileName name_base)) WriteMode $ \h ->
     hPutStr h content
 
+data WhatToRetrieve = None | All | JustList [String]
+getObjectList :: Options -> (ByTypeLists -> Maybe [String]) -> WhatToRetrieve
+getObjectList opts f =
+  case f $ oByTypeLists opts of
+    Just x ->
+      case x of
+        [] -> All
+        _  -> JustList x
+    Nothing ->
+      case oObjList opts of
+        Just x ->
+          case x of
+            [] -> All
+            _  -> JustList x
+        Nothing ->
+          if isAtLeastOneTypeSpecified $ oByTypeLists opts
+          then None -- Задан список для какогото другого типа, а для нашего нет. Поэтому считаем что наш тип не нужен.
+          else All  -- Никакие списки не заданы - считаем что надо получить всё.
+      
+
 retrieveViewsDDL opts = do
   let
     schema = fromJust $ oSchema opts
-  
+    what2Retrieve = getObjectList opts oViews
+
   let
     iter :: String -> String -> Maybe String -> IterAct (DBM m Session) ()
     iter a b c () = saveOneFile (oOutputDir opts) schema (a,b,c) >> (return . Right) ()
@@ -126,9 +166,10 @@ retrieveViewsDDL opts = do
            \   and a.owner = b.owner(+)            \n\
            \   and a.view_name=b.table_name(+)     \n"
            ++
-           if isNothing $ oObjList opts
-           then ""
-           else printf " and a.view_name in (%s) " $ getUnionAll $ fromJust $ oObjList opts
+           case what2Retrieve of
+             JustList lst ->
+               printf "   and a.view_name in (%s) \n" $ getUnionAll lst
+             _ -> ""
           )
           [bindP schema]
   
@@ -164,12 +205,15 @@ retrieveViewsDDL opts = do
         
           return $ create ++ comment ++ column_comments
 
-  doQuery stm iter ()
+  case what2Retrieve of
+    None -> return ()
+    _    -> doQuery stm iter ()
 
 
 retrieveSourcesDDL opts = do
   let
     schema = fromJust $ oSchema opts
+    what2Retrieve = getObjectList opts oSources
   
   let
     iter :: String -> String -> String -> IterAct (DBM m s) (Bool, String, String, [String])
@@ -189,20 +233,23 @@ retrieveSourcesDDL opts = do
            \   and type in ('PACKAGE','PACKAGE BODY','PROCEDURE','FUNCTION', \n\
            \                'TYPE', 'TYPE BODY', 'JAVA SOURCE')              \n"
            ++
-           (
-            if isNothing $ oObjList opts
-            then ""
-            else printf " and name in (%s) \n" $ getUnionAll $ fromJust $ oObjList opts
-           )
+           case what2Retrieve of
+             JustList lst ->
+               printf "   and name in (%s) \n" $ getUnionAll lst
+             _ -> ""
            ++
            " order by owner,type,name,line "
           )
           [bindP schema]
 
-  (dataFound,n,t,tx) <- doQuery stm iter (False,"","",[""])
-  when dataFound $
-       -- Сохраним последний найденный объект
-       saveOneFile n t tx
+
+  case what2Retrieve of
+    None -> return ()
+    _ -> do
+      (dataFound,n,t,tx) <- doQuery stm iter (False,"","",[""])
+      when dataFound $
+         -- Сохраним последний найденный объект
+         saveOneFile n t tx
 
   return ()
 
@@ -261,6 +308,7 @@ retrieveSourcesDDL opts = do
 retrieveTriggersDDL opts = do
   let
     schema = fromJust $ oSchema opts
+    what2Retrieve = getObjectList opts oTriggers
   
   let
     iter :: String -> String -> String -> String -> String -> IterAct (DBM m s) ()
@@ -270,13 +318,16 @@ retrieveTriggersDDL opts = do
                    \  from sys.all_triggers                                          \n\
                    \ where owner = ?                                                 \n"
                    ++
-                   (if isNothing $ oObjList opts
-                    then ""
-                    else printf " and trigger_name in (%s) \n" $ getUnionAll $ fromJust $ oObjList opts)
+                   case what2Retrieve of
+                     JustList lst ->
+                       printf "   and trigger_name in (%s) \n" $ getUnionAll lst
+                     _ -> ""
                   )
                   [bindP schema]
 
-  doQuery stm iter ()
+  case what2Retrieve of
+    None -> return ()
+    _    -> doQuery stm iter ()
   
   where
     saveOneFile (owner, name, descr, body, status) = do
@@ -339,6 +390,7 @@ retrieveTriggersDDL opts = do
 retrieveSynonymsDDL opts = do
   let
     schema = fromJust $ oSchema opts
+    what2Retrieve = getObjectList opts oSynonyms
   
   let
     iter :: (Monad m) => Bool -> IterAct m Bool
@@ -363,13 +415,16 @@ retrieveSynonymsDDL opts = do
             \  from sys.all_synonyms \n\
             \ where owner = ?        \n"
             ++
-           (if isNothing $ oObjList opts
-            then ""
-            else printf " and synonym_name in (%s) \n" $ getUnionAll $ fromJust $ oObjList opts)
+            case what2Retrieve of
+              JustList lst ->
+                printf "   and synonym_name in (%s) \n" $ getUnionAll lst
+              _ -> ""
 
     stm = sqlbind (printf sql' $ if dbLinkColumnExists then "db_link" else "null") [bindP schema]
 
-  doQuery stm iter ()
+  case what2Retrieve of
+    None -> return ()
+    _    -> doQuery stm iter ()
 
     where
       saveOneFile (owner, synonym_name, table_owner, table_name, db_link) = do
@@ -395,6 +450,7 @@ retrieveSynonymsDDL opts = do
 retrieveSequencesDDL opts = do
   let
     schema = fromJust $ oSchema opts
+    what2Retrieve = getObjectList opts oSequences
   
   let
     iter :: String -> String -> String -> String -> String -> Integer -> String -> String -> IterAct (DBM m s) ()
@@ -413,14 +469,17 @@ retrieveSequencesDDL opts = do
             \  from sys.all_sequences                     \n\
             \ where sequence_owner = ?                    \n"
             ++
-            (if isNothing $ oObjList opts
-             then ""
-             else printf " and sequence_name in (%s) \n" $ getUnionAll $ fromJust $ oObjList opts)
+            case what2Retrieve of
+              JustList lst ->
+                printf "   and sequence_name in (%s) \n" $ getUnionAll lst
+              _ -> ""
            )
            [bindP schema]
 
 
-  doQuery stm iter ()
+  case what2Retrieve of
+    None -> return ()
+    _    -> doQuery stm iter ()
 
     where
       saveOneFile (sequence_name, increment_by, min_value, max_value, cache_size, cache_size_x, cycle_flag, order_flag) = do
@@ -454,6 +513,7 @@ retrieveSequencesDDL opts = do
 retrieveTablesDDL opts = do
   let
     schema = fromJust $ oSchema opts
+    what2Retrieve = getObjectList opts oTables
   
     stm  = sqlbind
            (
@@ -464,9 +524,10 @@ retrieveTablesDDL opts = do
             \   and b.owner = ?                                       \n\
             \   and a.table_name=b.table_name \n"
             ++
-            (if isNothing $ oObjList opts
-             then ""
-             else printf " and a.table_name in (%s) \n" $ getUnionAll $ fromJust $ oObjList opts)
+            case what2Retrieve of
+              JustList lst ->
+                printf "   and a.table_name in (%s) \n" $ getUnionAll lst
+              _ -> ""
            )
            [bindP schema, bindP schema]
    
@@ -863,6 +924,7 @@ retrieveTablesDDL opts = do
                 (if map toUpper descend == "DECS" then " DESC" else "")
 
         
-  doQuery stm iter ()
-  return ()
+  case what2Retrieve of
+    None -> return ()
+    _    -> doQuery stm iter ()
 

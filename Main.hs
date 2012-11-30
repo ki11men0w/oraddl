@@ -9,7 +9,7 @@ import System.Console.CmdArgs as CMD
 import Control.Monad
 import Data.Maybe (isNothing, isJust, fromJust, fromMaybe)
 import Data.List
-import Data.Char
+import Utils (isSpace)
 import qualified Data.Map as M
 
 --import OracleUtils
@@ -21,6 +21,12 @@ data Flags = Flags
              {
                conn :: Maybe String,
                schema :: Maybe String,
+               tables :: Maybe [String],
+               views :: Maybe [String],
+               sources :: Maybe [String],
+               triggers :: Maybe [String],
+               synonyms :: Maybe [String],
+               sequences :: Maybe [String],
                list :: Maybe [String],
                listf :: Maybe FilePath,
                directory :: String,
@@ -40,14 +46,45 @@ getOpts = do
           schema =
             def
             &= help "Schema for which objects you get DDL's",
+          tables =
+            def
+            &= typ "NAME,NAME,..."
+            &= opt ""
+            &= help "Names of tables to retrieve. Names are case sensitive",
+          views =
+            def
+            &= explicit &= name "views"
+            &= typ "NAME,NAME,..."
+            &= opt ""
+            &= help "Names of views to retrieve. Names are case sensitive",
+          sources =
+            def
+            &= typ "NAME,NAME,..."
+            &= opt ""
+            &= help "Names of sources (packages, functions, procedures, java, types) to retrieve. Names are case sensitive",
+          triggers =
+            def
+            &= typ "NAME,NAME,..."
+            &= opt ""
+            &= help "Names of triggers to retrieve. Names are case sensitive",
+          synonyms =
+            def
+            &= typ "NAME,NAME,..."
+            &= opt ""
+            &= help "Names of synonyms to retrieve. Names are case sensitive",
+          sequences =
+            def
+            &= typ "NAME,NAME,..."
+            &= opt ""
+            &= help "Names of sequences to retrieve. Names are case sensitive",
           list =
             def
-            &= typ "OBJ1,OBJ2,..."
-            &= help "Object names delimited by comma (,). Object names are case sensitive",
+            &= typ "NAME,NAME,..."
+            &= help "Names of objects to retrieve. Names are case sensitive. Use this option instead of --tables, --views, etc. if the type of objects is unknown",
           listf =
             def
             &= typ "FILE"
-            &= help "File with list of intresting objects. Object names are case sensitive",
+            &= help "File with list of intresting objects. Names are case sensitive",
           directory =
             "."
             &= explicit &= name "dir"
@@ -88,10 +125,20 @@ translateOptions flags = do
     oConn = fromJust $ conn flags,
     oSchema = schema flags,
     oObjList = obj_list,
+    oByTypeLists = ByTypeLists {
+                     oTables    = uniqify `fmap` (tables flags),
+                     oViews     = uniqify `fmap` (views flags),
+                     oSources   = uniqify `fmap` (sources flags),
+                     oSequences = uniqify `fmap` (sequences flags),
+                     oSynonyms  = uniqify `fmap` (synonyms flags),
+                     oTriggers  = uniqify `fmap` (triggers flags)
+                   },
     oOutputDir = directory flags,
     oSaveEndSpaces = saveEndSpaces flags
     }
   where
+    uniqify = M.keys . M.fromList . map (\x -> (x,())) . filter (not . null)
+
     getObjList = do
       ox <- case listf flags of
         Just f -> do
@@ -103,7 +150,7 @@ translateOptions flags = do
                  ]
         _ -> return []
       
-      let x = M.keys $ M.fromList $ map (\x -> (x,())) $ ox ++ fromMaybe [] (list flags)
+      let x = uniqify $ ox ++ fromMaybe [] (list flags)
       return $ if null x then Nothing else Just x
 
 
