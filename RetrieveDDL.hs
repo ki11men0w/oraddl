@@ -154,6 +154,13 @@ retrieveViewsDDL opts = do
     schema = fromJust $ oSchema opts
     what2Retrieve = getObjectList opts oViews
 
+  withPreparedStatement 
+    (prepareQuery . sql $
+                    "select column_name, comments \n\
+                    \  from sys.all_col_comments  \n\
+                    \ where owner = ?             \n\
+                    \   and table_name = ?        \n\
+                    \ order by column_name        \n") $ \stm_comments -> do
   let
     iter (a::String) (b::String) (c::Maybe String) accum = saveOneFile (oOutputDir opts) schema (a,b,c) >> result' accum
     stm = sqlbind
@@ -172,13 +179,6 @@ retrieveViewsDDL opts = do
           )
           [bindP schema]
   
-    stm_comments = prepareQuery . sql $
-                    "select column_name, comments \n\
-                    \  from sys.all_col_comments  \n\
-                    \ where owner = ?             \n\
-                    \   and table_name = ?        \n\
-                    \ order by column_name        \n"
-
     saveOneFile outputDir schema viewInfo@(view_name, _, _) = do
       decl <- getViewDecl schema viewInfo
       liftIO $ write2File (oOutputDir opts) view_name "vew" $ decl
@@ -195,8 +195,7 @@ retrieveViewsDDL opts = do
         
             iter (a::String) (b::Maybe String) accum = result' ((a,b):accum)
 
-          r <- withPreparedStatement stm_comments $ \pstm ->
-                withBoundStatement pstm [bindP schema, bindP view_name] $ \bstm ->
+          r <- withBoundStatement stm_comments [bindP schema, bindP view_name] $ \bstm ->
                  (filter (\(_, x) -> isJust x) . reverse) `liftM` doQuery bstm iter []
           let column_comments :: String = concat $ flip map r $ \(column_name, comments) ->
                 printf "\nCOMMENT ON COLUMN %s.%s IS '%s'\n/\n" (getSafeName view_name) (getSafeName column_name) (clearSqlSource $ fromJust comments) :: String
@@ -508,6 +507,93 @@ retrieveTablesDDL opts = do
     schema = fromJust $ oSchema opts
     what2Retrieve = getObjectList opts oTables
   
+
+  withPreparedStatement
+    (prepareQuery . sql $
+                    "select column_name,        \n\
+                    \       data_type,          \n\
+                    \       data_length,        \n\
+                    \       data_precision,     \n\
+                    \       data_scale,         \n\
+                    \       nullable,           \n\
+                    \       data_default        \n\
+                    \  from sys.all_tab_columns \n\
+                    \ where owner = ?           \n\
+                    \   and table_name = ?      \n\
+                    \order by column_id         \n") $ \qryColumnDecl -> do
+  withPreparedStatement
+    (prepareQuery . sql $
+                    "select column_name, comments \n\
+                    \  from sys.all_col_comments  \n\
+                    \ where owner = ?             \n\
+                    \   and table_name = ?        \n\
+                    \order by column_name         ") $ \qryColumnComments -> do
+  withPreparedStatement                     
+    (prepareQuery . sql $
+                    "select column_name            \n\
+                    \  from sys.all_cons_columns   \n\
+                    \ where owner = ?              \n\
+                    \   and table_name = ?         \n\
+                    \   and constraint_name = ?    \n\
+                    \order by position             ") $ \qryConstraintColumns1 -> do
+  withPreparedStatement
+    (prepareQuery . sql $
+                    "select column_name,           \n\
+                    \       table_name             \n\
+                    \  from sys.all_cons_columns   \n\
+                    \ where owner = ?              \n\
+                    \   and constraint_name = ?    \n\
+                    \order by position             ") $ \qryConstraintColumns2 -> do
+  withPreparedStatement
+    (prepareQuery . sql $
+                    "select constraint_name,                                            \n\
+                    \       constraint_type,                                            \n\
+                    \       search_condition,                                           \n\
+                    \       r_owner,                                                    \n\
+                    \       r_constraint_name,                                          \n\
+                    \       delete_rule,                                                \n\
+                    \       status                                                      \n\
+                    \  from sys.all_constraints                                         \n\
+                    \ where owner = ?                                                   \n\
+                    \   and table_name = ?                                              \n\
+                    \order by decode(constraint_type, 'P',1, 'R',2, 'U',3, 'C',4, 100), \n\
+                    \         constraint_name") $ \qryConstraintDecl -> do
+  withPreparedStatement
+    (prepareQuery . sql $
+                    "select index_name    \n\
+                    \     , uniqueness    \n\
+                    \     , table_owner   \n\
+                    \--     , table_name  \n\
+                    \from sys.all_indexes \n\
+                    \where owner = ?      \n\
+                    \and table_name = ?   \n\
+                    \order by index_name  ") $ \qryIndexes -> do
+  withPreparedStatement    
+    (prepareQuery . sql $
+                    "select column_name         \n\
+                    \     , column_position     \n\
+                    \     , descend             \n\
+                    \  from sys.all_ind_columns \n\
+                    \ where index_owner = ?     \n\
+                    \   and index_name = ?      \n\
+                    \order by column_position   ") $ \qryIndexColumns1 -> do
+  withPreparedStatement
+    (prepareQuery . sql $
+                    "select column_name         \n\
+                    \     , column_position     \n\
+                    \     , '' as descend       \n\
+                    \  from sys.all_ind_columns \n\
+                    \ where index_owner = ?     \n\
+                    \   and index_name = ?      \n\
+                    \order by column_position   ") $ \qryIndexColumns2 -> do
+  withPreparedStatement
+    (prepareQuery . sql $
+                    "select column_position         \n\
+                    \     , column_expression       \n\
+                    \  from sys.all_ind_expressions \n\
+                    \ where index_owner = ?         \n\
+                    \   and index_name = ?          ") $ \qryIndexColumnExpressions -> do
+  let
     stm  = sqlbind
            (
             "select a.table_name, b.comments, a.temporary, a.duration \n\
@@ -526,99 +612,6 @@ retrieveTablesDDL opts = do
    
     iter (a1::String) (a2::Maybe String) (a3::String) (a4::Maybe String) accum = saveOneFile a1 a2 a3 a4 >> result' accum
 
-    qryColumnDecl =
-      prepareQuery . sql $
-                     "select column_name,        \n\
-                     \       data_type,          \n\
-                     \       data_length,        \n\
-                     \       data_precision,     \n\
-                     \       data_scale,         \n\
-                     \       nullable,           \n\
-                     \       data_default        \n\
-                     \  from sys.all_tab_columns \n\
-                     \ where owner = ?           \n\
-                     \   and table_name = ?      \n\
-                     \order by column_id         \n"
-
-    qryColumnComments =
-      prepareQuery . sql $
-                     "select column_name, comments \n\
-                     \  from sys.all_col_comments  \n\
-                     \ where owner = ?             \n\
-                     \   and table_name = ?        \n\
-                     \order by column_name         "
-                     
-    qryConstraintColumns1 =
-      prepareQuery . sql $
-                     "select column_name            \n\
-                     \  from sys.all_cons_columns   \n\
-                     \ where owner = ?              \n\
-                     \   and table_name = ?         \n\
-                     \   and constraint_name = ?    \n\
-                     \order by position             "
-
-    qryConstraintColumns2 =
-      prepareQuery . sql $
-                     "select column_name,           \n\
-                     \       table_name             \n\
-                     \  from sys.all_cons_columns   \n\
-                     \ where owner = ?              \n\
-                     \   and constraint_name = ?    \n\
-                     \order by position             "
-
-    qryConstraintDecl =
-      prepareQuery . sql $
-                   "select constraint_name,                                            \n\
-                   \       constraint_type,                                            \n\
-                   \       search_condition,                                           \n\
-                   \       r_owner,                                                    \n\
-                   \       r_constraint_name,                                          \n\
-                   \       delete_rule,                                                \n\
-                   \       status                                                      \n\
-                   \  from sys.all_constraints                                         \n\
-                   \ where owner = ?                                                   \n\
-                   \   and table_name = ?                                              \n\
-                   \order by decode(constraint_type, 'P',1, 'R',2, 'U',3, 'C',4, 100), \n\
-                   \         constraint_name"
-
-    qryIndexes =
-      prepareQuery . sql $
-                     "select index_name    \n\
-                     \     , uniqueness    \n\
-                     \     , table_owner   \n\
-                     \--     , table_name  \n\
-                     \from sys.all_indexes \n\
-                     \where owner = ?      \n\
-                     \and table_name = ?   \n\
-                     \order by index_name  "
-
-    qryIndexColumns1 =
-      prepareQuery . sql $
-                     "select column_name         \n\
-                     \     , column_position     \n\
-                     \     , descend             \n\
-                     \  from sys.all_ind_columns \n\
-                     \ where index_owner = ?     \n\
-                     \   and index_name = ?      \n\
-                     \order by column_position   "
-
-    qryIndexColumns2 =
-      prepareQuery . sql $
-                     "select column_name         \n\
-                     \     , column_position     \n\
-                     \     , '' as descend       \n\
-                     \  from sys.all_ind_columns \n\
-                     \ where index_owner = ?     \n\
-                     \   and index_name = ?      \n\
-                     \order by column_position   "
-
-    qryIndexColumnExpressions =
-      prepareQuery . sql $
-                     "select column_position         \n\
-                     \     , column_expression       \n\
-                     \  from sys.all_ind_expressions \n\
-                     \ where index_owner = ?         \n\
-                     \   and index_name = ?          "
     -- Сохраняет одну таблицу
     saveOneFile table_name comments temporary duration = do
 
@@ -693,8 +686,7 @@ retrieveTablesDDL opts = do
             iter (a1::String) (a2::String) (a3::Integer) (a4::Maybe Integer) (a5::Maybe Integer) (a6::String) (a7::Maybe String) accum = result' ((a1,a2,a3,a4,a5,a6,a7):accum)
       
 
-          columns_r <- withPreparedStatement qryColumnDecl $ \pstm ->
-                       withBoundStatement pstm [bindP schema, bindP table_name] $ \stm ->
+          columns_r <- withBoundStatement qryColumnDecl [bindP schema, bindP table_name] $ \stm ->
                          reverse `liftM` doQuery stm iter []
   
           return . intercalate ",\n" $ map getColumnDecl columns_r
@@ -714,9 +706,8 @@ retrieveTablesDDL opts = do
               iter (a1::String) (a2::Maybe String) accum = result' ((a1,a2):accum)
    
           columns_comments_accum <-
-            withPreparedStatement qryColumnComments $ \pstm ->
-              withBoundStatement pstm [bindP schema, bindP table_name] $ \stm ->
-                reverse `liftM` doQuery stm iter []
+            withBoundStatement qryColumnComments [bindP schema, bindP table_name] $ \stm ->
+              reverse `liftM` doQuery stm iter []
       
           let x = concatMap ("\n" ++) . mapMaybe getColumnComment $ columns_comments_accum
           return $ if null x then Nothing else Just x
@@ -769,10 +760,9 @@ retrieveTablesDDL opts = do
                   let
                     iter (a1::String) accum = result' (a1:accum)
                   
-                  r <-
-                    withPreparedStatement qryConstraintColumns1 $ \pstm ->
-                      withBoundStatement pstm [bindP schema, bindP table_name, bindP constraint_name] $ \stm ->
-                        reverse `liftM` doQuery stm iter []
+                  r <- 
+                    withBoundStatement qryConstraintColumns1 [bindP schema, bindP table_name, bindP constraint_name] $ \stm ->
+                      reverse `liftM` doQuery stm iter []
                  
                   let
                     columns = filter (not . null) $ flip map r $ \column_name ->
@@ -795,9 +785,8 @@ retrieveTablesDDL opts = do
                         iter (a1::String) (a2::String) accum = result' ((a1,a2):accum)
     
                       r <-
-                        withPreparedStatement qryConstraintColumns2 $ \pstm ->
-                          withBoundStatement pstm [bindP $ fromJust r_owner, bindP $ fromJust r_constraint_name] $ \stm ->
-                            reverse `liftM` doQuery stm iter []
+                        withBoundStatement qryConstraintColumns2 [bindP $ fromJust r_owner, bindP $ fromJust r_constraint_name] $ \stm ->
+                          reverse `liftM` doQuery stm iter []
 
                       let
                         r_table_name' = getSafeName . snd . head $ r
@@ -838,9 +827,8 @@ retrieveTablesDDL opts = do
             iter (a1::String) (a2::String) (a3::Maybe String) (a4::Maybe String) (a5::Maybe String) (a6::Maybe String) (a7::String) accum = result' ((a1,a2,a3,a4,a5,a6,a7):accum)
     
           constraint_accum <-
-            withPreparedStatement qryConstraintDecl $ \pstm ->
-              withBoundStatement pstm [bindP schema, bindP table_name] $ \stm ->
-                reverse `liftM` doQuery stm iter []
+            withBoundStatement qryConstraintDecl [bindP schema, bindP table_name] $ \stm ->
+              reverse `liftM` doQuery stm iter []
 
           let constraints = M.fromList . flip map constraint_accum $ \(constraint_name,_,_,_,_,_,_) -> (constraint_name, ())
 
@@ -853,8 +841,7 @@ retrieveTablesDDL opts = do
         iter (a1::String) (a2::String) (a3::String) accum = result' ((a1,a2,a3):accum)
 
       r <-
-        withPreparedStatement qryIndexes $ \pstm ->
-          withBoundStatement pstm [bindP schema, bindP table_name] $ \stm ->
+          withBoundStatement qryIndexes [bindP schema, bindP table_name] $ \stm ->
             (reverse .
              -- если это индекс для констрэйнта, то пропускаем его
              filter (\(index_name,_,_) -> not $ M.member index_name constraints))
@@ -890,11 +877,9 @@ retrieveTablesDDL opts = do
           column_index_expressions_map <- getIndexColumnExpressions
                
           r <- reverse `liftM`
-               catchDB (withPreparedStatement qryIndexColumns1 $ \pstm ->
-                          withBoundStatement pstm [bindP schema, bindP index_name] $ \stm -> doQuery stm iter [])
+               catchDB (withBoundStatement qryIndexColumns1 [bindP schema, bindP index_name] $ \stm -> doQuery stm iter [])
                        (\_ ->
-                          withPreparedStatement qryIndexColumns2 $ \pstm ->
-                            withBoundStatement pstm [bindP schema, bindP index_name] $ \stm -> doQuery stm iter [])
+                          withBoundStatement qryIndexColumns2 [bindP schema, bindP index_name] $ \stm -> doQuery stm iter [])
 
           return $ map (getDeclColumnIndex column_index_expressions_map) r
 
@@ -906,9 +891,8 @@ retrieveTablesDDL opts = do
                 let
                   iter (cp::Integer) (ce::String) accum = result' $ M.insert cp ce accum
 
-                withPreparedStatement qryIndexColumnExpressions $ \pstm ->
-                  withBoundStatement pstm [bindP schema, bindP index_name] $ \stm ->
-                    doQuery stm iter M.empty
+                withBoundStatement qryIndexColumnExpressions [bindP schema, bindP index_name] $ \stm ->
+                  doQuery stm iter M.empty
 
               -- Возвращает декларацию колонки индекса
               getDeclColumnIndex column_index_expressions_map (column_name, column_position, descend) =
