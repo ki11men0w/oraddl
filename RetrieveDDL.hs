@@ -58,9 +58,9 @@ data Options = Options
                }
 
 getDefaultSchema = do
-  let it :: (Monad m) => String -> IterAct m String
-      it a accum = result a
-  doQuery (sql "select user from dual") it []
+  let
+    iter (a::String) accum = result' $ if True then a else accum
+  doQuery (sql "select user from dual") iter []
   
 getSchema schema =
   case schema of
@@ -155,8 +155,7 @@ retrieveViewsDDL opts = do
     what2Retrieve = getObjectList opts oViews
 
   let
-    iter :: String -> String -> Maybe String -> IterAct (DBM m Session) ()
-    iter a b c () = saveOneFile (oOutputDir opts) schema (a,b,c) >> (return . Right) ()
+    iter (a::String) (b::String) (c::Maybe String) accum = saveOneFile (oOutputDir opts) schema (a,b,c) >> result' accum
     stm = sqlbind
           (
            "select a.view_name, a.text, b.comments \n\
@@ -194,8 +193,7 @@ retrieveViewsDDL opts = do
                 Just c  -> printf "\nCOMMENT ON TABLE %s IS '%s'\n/\n" (getSafeName view_name) $ clearSqlSource c
                 Nothing -> ""
         
-            iter :: (Monad m) => String -> Maybe String -> IterAct m [(String, Maybe String)]
-            iter a b accum = result ((a,b):accum)
+            iter (a::String) (b::Maybe String) accum = result' ((a,b):accum)
 
           r <- withPreparedStatement stm_comments $ \pstm ->
                 withBoundStatement pstm [bindP schema, bindP view_name] $ \bstm ->
@@ -216,14 +214,12 @@ retrieveSourcesDDL opts = do
     what2Retrieve = getObjectList opts oSources
   
   let
-    iter :: String -> String -> String -> IterAct (DBM m s) (Bool, String, String, [String])
-    iter name type' text (dataFound, prevName, prevType', collectedText) = do
-      liftM Right $
+    iter (name::String) (type'::String) (text::String) accum@(dataFound::Bool, prevName::String, prevType'::String, collectedText::[String]) = do
             if (name == prevName && type' == prevType')
-            then return (True, name, type', collectedText ++ [text])
+            then result' (True, name, type', collectedText ++ [text])
             else
               do when (not $ null prevName) $ saveOneFile prevName prevType' collectedText
-                 return (True, name, type', [text])
+                 result' (True, name, type', [text])
 
     stm = sqlbind
           (
@@ -311,8 +307,7 @@ retrieveTriggersDDL opts = do
     what2Retrieve = getObjectList opts oTriggers
   
   let
-    iter :: String -> String -> String -> String -> String -> IterAct (DBM m s) ()
-    iter a b c d e _ = saveOneFile (a,b,c,d,e) >> (return . Right) ()
+    iter (a::String) (b::String) (c::String) (d::String) (e::String) accum = saveOneFile (a,b,c,d,e) >> result' accum
     stm = sqlbind (
                    "select owner,trigger_name,description,trigger_body,status        \n\
                    \  from sys.all_triggers                                          \n\
@@ -393,8 +388,7 @@ retrieveSynonymsDDL opts = do
     what2Retrieve = getObjectList opts oSynonyms
   
   let
-    iter :: (Monad m) => Bool -> IterAct m Bool
-    iter a accum = result a
+    iter (a::Bool) accum = result' $ True || accum
     -- Определяем есть ли колонка DB_LINK
     sql' = "select 'True'                    \n\
            \  from sys.all_tab_columns       \n\
@@ -405,8 +399,7 @@ retrieveSynonymsDDL opts = do
   dbLinkColumnExists <- doQuery (sql sql') iter False
 
   let
-    iter :: String -> String -> Maybe String -> String -> Maybe String -> IterAct (DBM m s) ()
-    iter a b c d e _ = saveOneFile (a,b,c,d,e) >> (return . Right) ()
+    iter (a::String) (b::String) (c::Maybe String) (d::String) (e::Maybe String) accum = saveOneFile (a,b,c,d,e) >> result' accum
     sql'  = "select owner            \n\
             \      ,synonym_name     \n\
             \      ,table_owner      \n\
@@ -453,8 +446,8 @@ retrieveSequencesDDL opts = do
     what2Retrieve = getObjectList opts oSequences
   
   let
-    iter :: String -> String -> String -> String -> String -> Integer -> String -> String -> IterAct (DBM m s) ()
-    iter a1 a2 a3 a4 a5 a6 a7 a8 accum =  saveOneFile (a1, a2, a3, a4, a5, a6, a7, a8) >> (return . Right) ()
+    iter (a1::String) (a2::String) (a3::String) (a4::String) (a5::String) (a6::Integer) (a7::String) (a8::String) accum =
+      saveOneFile (a1, a2, a3, a4, a5, a6, a7, a8) >> result' accum
     
     stm  = sqlbind
            (
@@ -531,8 +524,7 @@ retrieveTablesDDL opts = do
            )
            [bindP schema, bindP schema]
    
-    iter :: String -> Maybe String -> String -> Maybe String -> IterAct (DBM m Session) ()
-    iter a1 a2 a3 a4 accum = saveOneFile a1 a2 a3 a4 >> (return . Right) ()
+    iter (a1::String) (a2::Maybe String) (a3::String) (a4::Maybe String) accum = saveOneFile a1 a2 a3 a4 >> result' accum
 
     qryColumnDecl =
       prepareQuery . sql $
@@ -698,9 +690,7 @@ retrieveTablesDDL opts = do
                 if nullable == "N" then " NOT NULL" else ""
   
           let
-            iter :: (Monad m) => String -> String -> Integer -> Maybe Integer -> Maybe Integer -> String -> Maybe String
-                    -> IterAct m [(String, String, Integer, Maybe Integer, Maybe Integer, String, Maybe String)]
-            iter a1 a2 a3 a4 a5 a6 a7 accum = result ((a1,a2,a3,a4,a5,a6,a7):accum)
+            iter (a1::String) (a2::String) (a3::Integer) (a4::Maybe Integer) (a5::Maybe Integer) (a6::String) (a7::Maybe String) accum = result' ((a1,a2,a3,a4,a5,a6,a7):accum)
       
 
           columns_r <- withPreparedStatement qryColumnDecl $ \pstm ->
@@ -721,8 +711,7 @@ retrieveTablesDDL opts = do
                                            comments'
                   Nothing -> Nothing
     
-              iter :: (Monad m) => String -> Maybe String -> IterAct m [(String, Maybe String)]
-              iter a1 a2 accum = result ((a1,a2):accum)
+              iter (a1::String) (a2::Maybe String) accum = result' ((a1,a2):accum)
    
           columns_comments_accum <-
             withPreparedStatement qryColumnComments $ \pstm ->
@@ -778,8 +767,7 @@ retrieveTablesDDL opts = do
                 -- Формируем декларацию списка полей включённых в констрэйнт
                 getDeclConstraintColumns = do
                   let
-                    iter :: (Monad m) => String -> IterAct m [String]
-                    iter a1 accum = result (a1:accum)
+                    iter (a1::String) accum = result' (a1:accum)
                   
                   r <-
                     withPreparedStatement qryConstraintColumns1 $ \pstm ->
@@ -804,8 +792,7 @@ retrieveTablesDDL opts = do
                   part1 <- case constraint_type of
                     "R" -> do -- Foreign key
                       let
-                        iter :: (Monad m) => String -> String -> IterAct m [(String, String)]
-                        iter a1 a2 accum = result ((a1,a2):accum)
+                        iter (a1::String) (a2::String) accum = result' ((a1,a2):accum)
     
                       r <-
                         withPreparedStatement qryConstraintColumns2 $ \pstm ->
@@ -848,9 +835,7 @@ retrieveTablesDDL opts = do
                   return $ part1 ++ status_part
 
           let
-            iter :: (Monad m) => String -> String -> Maybe String -> Maybe String -> Maybe String -> Maybe String -> String
-                    -> IterAct m [(String, String, Maybe String, Maybe String, Maybe String, Maybe String, String)]
-            iter a1 a2 a3 a4 a5 a6 a7 accum = result ((a1,a2,a3,a4,a5,a6,a7):accum)
+            iter (a1::String) (a2::String) (a3::Maybe String) (a4::Maybe String) (a5::Maybe String) (a6::Maybe String) (a7::String) accum = result' ((a1,a2,a3,a4,a5,a6,a7):accum)
     
           constraint_accum <-
             withPreparedStatement qryConstraintDecl $ \pstm ->
@@ -865,8 +850,7 @@ retrieveTablesDDL opts = do
     -- Снимаем индексы
     getDeclIndexes schema table_name constraints = do
       let
-        iter :: (Monad m) => String -> String -> String -> IterAct m [(String, String, String)]
-        iter a1 a2 a3 accum = result ((a1,a2,a3):accum)
+        iter (a1::String) (a2::String) (a3::String) accum = result' ((a1,a2,a3):accum)
 
       r <-
         withPreparedStatement qryIndexes $ \pstm ->
@@ -901,8 +885,7 @@ retrieveTablesDDL opts = do
       where
         getDeclIndexColumns schema index_name = do
           let
-            iter :: (Monad m) => String -> Integer -> String -> IterAct m [(String, Integer, String)]
-            iter a1 a2 a3 accum = result ((a1,a2,a3):accum)
+            iter (a1::String) (a2::Integer) (a3::String) accum = result' ((a1,a2,a3):accum)
           
           column_index_expressions_map <- getIndexColumnExpressions
                
@@ -921,8 +904,7 @@ retrieveTablesDDL opts = do
               -- по ключу номера колонки отдельно.
               getIndexColumnExpressions = do
                 let
-                  iter :: (Monad m) => Integer -> String -> IterAct m (M.Map Integer String)
-                  iter cp ce accum = result $ M.insert cp ce accum
+                  iter (cp::Integer) (ce::String) accum = result' $ M.insert cp ce accum
 
                 withPreparedStatement qryIndexColumnExpressions $ \pstm ->
                   withBoundStatement pstm [bindP schema, bindP index_name] $ \stm ->
