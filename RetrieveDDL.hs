@@ -812,12 +812,23 @@ retrieveTablesDDL opts = do
                           withBoundStatement pstm [bindP $ fromJust r_owner, bindP $ fromJust r_constraint_name] $ \stm ->
                             reverse `liftM` doQuery stm iter []
 
+                      let
+                        r_table_name' = getSafeName . snd . head $ r
+                        r_table_name =
+                          case r_owner of
+                            Nothing -> r_table_name'
+                            Just r_owner'
+                                 | r_owner' == schema -> r_table_name'
+                                 -- Владелец таблицы на которую ссылаемся не совпадает с владельцем
+                                 -- ключа, поэтому указываем схему владельца таблицы явно
+                                 | otherwise -> getSafeName r_owner' ++ "." ++ r_table_name'
+
                       ref_part <-
                         case r of
                           [] -> do liftIO . printWarning $ "Error while processing constraint " ++ constraint_name
                                    return ""
                           _  -> do let x = intercalate "," $ map fst r
-                                   return $ printf "\n      REFERENCES %s(%s)" (snd . head $ r) x
+                                   return $ printf "\n      REFERENCES %s(%s)" r_table_name x
 
                       let delete_part = case delete_rule of
                                           Just "CASCADE" -> "\n  ON DELETE CASCADE"
