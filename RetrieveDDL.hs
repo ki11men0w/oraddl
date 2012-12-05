@@ -4,15 +4,14 @@
 module RetrieveDDL where
 
 import System.IO
-import System.FilePath
+import System.FilePath ((</>), addExtension)
 import Data.Maybe (fromJust, isNothing, isJust, mapMaybe, fromMaybe)
-import Data.List
+import Data.List (dropWhileEnd, intercalate, isPrefixOf)
 import Data.Char (toUpper, toLower, ord)
 
-import Text.Printf
-import Control.Monad
-import Control.Monad.Trans
-import Database.Enumerator
+import Text.Printf (printf)
+import Control.Monad (when, liftM, forM)
+import Control.Monad.Trans (liftIO)
 import Database.Oracle.Enumerator
 import Data.Typeable (Typeable)
 
