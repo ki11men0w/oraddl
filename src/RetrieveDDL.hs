@@ -4,7 +4,7 @@
 module RetrieveDDL where
 
 import System.IO
-import System.FilePath ((</>), addExtension)
+import System.FilePath ((</>), addExtension, isValid)
 import Data.Maybe (fromJust, isNothing, isJust, mapMaybe, fromMaybe)
 import Data.List (dropWhileEnd, intercalate, isPrefixOf)
 import Data.Char (toUpper, toLower, ord)
@@ -122,7 +122,7 @@ normalizeFileName name =
   concat $ flip map name $ \n ->
     case n of
       _
-        | n `elem` canNotBeInFileName -> printf "%%%X" $ ord n
+        | n `elem` canNotBeInFileName || (not . isValid) [n] -> printf "%%%X" $ ord n
         | otherwise -> [n]
   where
     canNotBeInFileName = "/\\"
