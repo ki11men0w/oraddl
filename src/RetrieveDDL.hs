@@ -10,7 +10,7 @@ import Data.List (dropWhileEnd, intercalate, isPrefixOf)
 import Data.Char (toUpper, toLower, ord)
 
 import Text.Printf (printf)
-import Control.Monad (when, liftM, forM)
+import Control.Monad (when, unless, liftM, forM)
 import Control.Monad.Trans (liftIO)
 import Database.Oracle.Enumerator
 import Data.Typeable (Typeable)
@@ -184,7 +184,7 @@ retrieveViewsDDL opts = do
   
     saveOneFile outputDir schema viewInfo@(view_name, _, _) = do
       decl <- getViewDecl schema viewInfo
-      liftIO $ write2File (oOutputDir opts) view_name "vew" $ decl
+      liftIO $ write2File (oOutputDir opts) view_name "vew" decl
       return ()
       where
         getViewDecl schema (view_name, text, comments) = do
@@ -217,10 +217,10 @@ retrieveSourcesDDL opts = do
   
   let
     iter (name::String) (type'::String) (text::String) accum@(dataFound::Bool, prevName::String, prevType'::String, collectedText::[String]) =
-            if (name == prevName && type' == prevType')
+            if name == prevName && type' == prevType'
             then result' (True, name, type', collectedText ++ [text])
             else
-              do when (not $ null prevName) $ saveOneFile prevName prevType' collectedText
+              do unless (null prevName) $ saveOneFile prevName prevType' collectedText
                  result' (True, name, type', [text])
 
     stm = sqlbind
@@ -846,7 +846,7 @@ retrieveTablesDDL opts = do
                   return $ part1 ++ deferred_part ++ status_part
 
           let
-            iter a1 a2 a3 a4 a5 a6 a7 a8 a9 accum = result' $ (OraTableConstraint a1 a2 a3 a4 a5 a6 a7 a8 a9):accum
+            iter a1 a2 a3 a4 a5 a6 a7 a8 a9 accum = result' $ OraTableConstraint a1 a2 a3 a4 a5 a6 a7 a8 a9 : accum
     
           constraint_accum <-
             withBoundStatement qryConstraintDecl [bindP schema, bindP table_name] $ \stm ->
