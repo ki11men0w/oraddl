@@ -580,7 +580,7 @@ retrieveTablesDDL opts = do
                     "select index_name    \n\
                     \     , uniqueness    \n\
                     \     , table_owner   \n\
-                    \--     , table_name  \n\
+                    \     , partitioned   \n\
                     \from sys.all_indexes \n\
                     \where owner = ?      \n\
                     \and table_name = ?   \n\
@@ -860,17 +860,17 @@ retrieveTablesDDL opts = do
     -- Снимаем индексы
     getDeclIndexes schema table_name constraints = do
       let
-        iter (a1::String) (a2::String) (a3::String) accum = result' ((a1,a2,a3):accum)
+        iter (a1::String) (a2::String) (a3::String) (a4::String) accum = result' ((a1,a2,a3,a4):accum)
 
       r <-
           withBoundStatement qryIndexes [bindP schema, bindP table_name] $ \stm ->
             (reverse .
              -- если это индекс для констрэйнта, то пропускаем его
-             filter (\(index_name,_,_) -> not $ M.member index_name constraints))
+             filter (\(index_name,_,_,_) -> not $ M.member index_name constraints))
             `liftM`
             doQuery stm iter []
 
-      indexesDecl <- forM r $ \(index_name, uniqueness, table_owner) -> do
+      indexesDecl <- forM r $ \(index_name, uniqueness, table_owner, partitioned) -> do
 
         index_columns <- getDeclIndexColumns schema index_name
         let
@@ -884,6 +884,7 @@ retrieveTablesDDL opts = do
                         then printf "\n ON %s\n" (getSafeName table_name)
                         else printf "\n ON %s.%s\n" (getSafeName table_owner) (getSafeName table_name))
                        ++ "  (\n" ++ (intercalate ",\n" . map ("   "++)) index_columns ++ "\n  )"
+                       ++ (if partitioned == "YES" then "\n LOCAL" else "")
 
         return headerDecl
 
