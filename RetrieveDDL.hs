@@ -6,7 +6,7 @@ import System.IO
 import System.FilePath
 import Data.Maybe (fromJust, isNothing, isJust, mapMaybe, fromMaybe)
 import Data.List
-import Data.Char (toUpper, toLower)
+import Data.Char (toUpper, toLower, ord)
 
 import Text.Printf
 import Control.Monad
@@ -118,11 +118,13 @@ retreiveDDL opts = do
 
 normalizeFileName :: FilePath -> FilePath
 normalizeFileName name =
-  flip map name $ \n ->
+  concat $ flip map name $ \n ->
     case n of
-      '/'  -> '.'
-      '\\' -> '.'
-      _    -> n
+      _
+        | n `elem` canNotBeInFileName -> printf "%%%X" $ ord n
+        | otherwise -> [n]
+  where
+    canNotBeInFileName = "/\\"
 
 write2File :: FilePath -> FilePath -> FilePath -> String -> IO ()
 write2File directory name_base name_suffix content =
