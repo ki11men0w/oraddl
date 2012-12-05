@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 
 module RetrieveDDL where
 
@@ -13,6 +14,7 @@ import Control.Monad
 import Control.Monad.Trans
 import Database.Enumerator
 import Database.Oracle.Enumerator
+import Data.Typeable (Typeable)
 
 import Text.Parsec
 
@@ -504,6 +506,18 @@ retrieveSequencesDDL opts = do
         liftIO $ write2File (oOutputDir opts) sequence_name "seq" decl
     
 
+data OraTableConstraint = OraTableConstraint {
+    constraint_name :: String,
+    constraint_type :: String,
+    search_condition :: Maybe String,
+    r_owner :: Maybe String,
+    r_constraint_name :: Maybe String,
+    delete_rule :: Maybe String,
+    status :: String,
+    deferrable :: String,
+    deferred :: String
+  } deriving Typeable
+
 retrieveTablesDDL opts = do
   let
     schema = fromJust $ oSchema opts
@@ -554,7 +568,9 @@ retrieveTablesDDL opts = do
                     \       r_owner,                                                    \n\
                     \       r_constraint_name,                                          \n\
                     \       delete_rule,                                                \n\
-                    \       status                                                      \n\
+                    \       status,                                                     \n\
+                    \       deferrable,                                                 \n\
+                    \       deferred                                                    \n\
                     \  from sys.all_constraints                                         \n\
                     \ where owner = ?                                                   \n\
                     \   and table_name = ?                                              \n\
@@ -718,7 +734,7 @@ retrieveTablesDDL opts = do
     -- Обрабатываем констрэйнты
     getDeclConstraints schema table_name = do
           let
-            getConstraintDecl (constraint_name, constraint_type, search_condition, r_owner, r_constraint_name, delete_rule, status) =
+            getConstraintDecl (OraTableConstraint constraint_name constraint_type search_condition r_owner r_constraint_name delete_rule status deferrable deferred) =
               case constraint_type of
                 "P" -> -- Primary key
                        getConstraintDecl' "PRIMARY KEY"
@@ -816,6 +832,11 @@ retrieveTablesDDL opts = do
 
                     _ -> return ""
 
+                  let deferred_part = if deferrable == "DEFERRABLE"
+                                      then "\n  DEFERRABLE" ++
+                                           (if deferred == "DEFERRED" then " INITIALLY DEFERRED" else "")
+                                      else ""
+
                   status_part <- case status of
                     "ENABLED" -> return ""
                     "DISABLED" -> return "\n  DISABLE"
@@ -823,16 +844,16 @@ retrieveTablesDDL opts = do
                             liftIO . printWarning $ msg
                             return $ "\n-- " ++ msg
 
-                  return $ part1 ++ status_part
+                  return $ part1 ++ deferred_part ++ status_part
 
           let
-            iter (a1::String) (a2::String) (a3::Maybe String) (a4::Maybe String) (a5::Maybe String) (a6::Maybe String) (a7::String) accum = result' ((a1,a2,a3,a4,a5,a6,a7):accum)
+            iter a1 a2 a3 a4 a5 a6 a7 a8 a9 accum = result' $ (OraTableConstraint a1 a2 a3 a4 a5 a6 a7 a8 a9):accum
     
           constraint_accum <-
             withBoundStatement qryConstraintDecl [bindP schema, bindP table_name] $ \stm ->
               reverse `liftM` doQuery stm iter []
 
-          let constraints = M.fromList . flip map constraint_accum $ \(constraint_name,_,_,_,_,_,_) -> (constraint_name, ())
+          let constraints = M.fromList . flip map constraint_accum $ \x -> (constraint_name x, ())
 
           x <- liftM (intercalate "\n" . map ((++"\n/\n") . fromJust) . filter isJust) $ mapM getConstraintDecl constraint_accum
           return (if null x then Nothing else Just x, constraints)
