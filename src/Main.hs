@@ -15,7 +15,7 @@ import qualified Data.Map as M
 --import OracleUtils
 import RetrieveDDL
 
-programVersion = "2.0.0.0 (haskell)"
+programVersion = "2.0.1 (haskell)"
 
 data Flags = Flags 
              {
