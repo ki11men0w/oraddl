@@ -216,7 +216,7 @@ retrieveSourcesDDL opts = do
     what2Retrieve = getObjectList opts oSources
   
   let
-    iter (name::String) (type'::String) (text::String) accum@(dataFound::Bool, prevName::String, prevType'::String, collectedText::[String]) = do
+    iter (name::String) (type'::String) (text::String) accum@(dataFound::Bool, prevName::String, prevType'::String, collectedText::[String]) =
             if (name == prevName && type' == prevType')
             then result' (True, name, type', collectedText ++ [text])
             else
@@ -888,8 +888,8 @@ retrieveTablesDDL opts = do
         return headerDecl
 
       if null indexesDecl
-      then return Nothing
-      else return . Just $ intercalate "\n/\n\n" indexesDecl ++ "\n/\n"
+       then return Nothing
+       else return . Just $ intercalate "\n/\n\n" indexesDecl ++ "\n/\n"
 
       where
         getDeclIndexColumns schema index_name = do
