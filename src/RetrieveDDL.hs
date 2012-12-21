@@ -98,6 +98,12 @@ getUnionAll lst =
     select = printf "select '%s' from dual"
 
 
+sqlStringLiteral :: String -> String
+sqlStringLiteral input =
+  '\'' : concatMap doublefyQuoteSign input ++ "'"
+  where
+    doublefyQuoteSign '\'' = "\'\'"
+    doublefyQuoteSign c    = [c]
 
 
 retreiveDDL :: Options -> IO ()
@@ -193,7 +199,7 @@ retrieveViewsDDL opts = do
               printf "CREATE OR REPLACE VIEW %s\nAS\n%s\n/\n" (getSafeName view_name) $ clearSqlSource text
             comment :: String =
               case comments of
-                Just c  -> printf "\nCOMMENT ON TABLE %s IS '%s'\n/\n" (getSafeName view_name) $ clearSqlSource c
+                Just c  -> printf "\nCOMMENT ON TABLE %s IS %s\n/\n" (getSafeName view_name) $ sqlStringLiteral . clearSqlSource $ c
                 Nothing -> ""
         
             iter (a::String) (b::Maybe String) accum = result' ((a,b):accum)
@@ -201,7 +207,7 @@ retrieveViewsDDL opts = do
           r <- withBoundStatement stm_comments [bindP schema, bindP view_name] $ \bstm ->
                  (filter (\(_, x) -> isJust x) . reverse) `liftM` doQuery bstm iter []
           let column_comments :: String = concat $ flip map r $ \(column_name, comments) ->
-                printf "\nCOMMENT ON COLUMN %s.%s IS '%s'\n/\n" (getSafeName view_name) (getSafeName column_name) (clearSqlSource $ fromJust comments) :: String
+                printf "\nCOMMENT ON COLUMN %s.%s IS %s\n/\n" (getSafeName view_name) (getSafeName column_name) (sqlStringLiteral . clearSqlSource $ fromJust comments) :: String
         
           return $ create ++ comment ++ column_comments
 
@@ -655,7 +661,7 @@ retrieveTablesDDL opts = do
                   \ )%s\n\
                   \/\n" table_spec (getSafeName table_name) columns_decl temporary_decl
           ++
-          maybe "" (printf "\nCOMMENT ON TABLE %s IS '%s'\n/\n" (getSafeName table_name)) comments
+          maybe "" (printf "\nCOMMENT ON TABLE %s IS %s\n/\n" (getSafeName table_name) . sqlStringLiteral) comments
           ++
           fromMaybe "" columns_comment_decl
           ++
@@ -714,10 +720,10 @@ retrieveTablesDDL opts = do
           let
               getColumnComment (column_name, comments) =
                 case comments of
-                  Just comments' -> Just $ printf "COMMENT ON COLUMN %s.%s IS '%s'\n/\n"
+                  Just comments' -> Just $ printf "COMMENT ON COLUMN %s.%s IS %s\n/\n"
                                            (getSafeName table_name)
                                            (getSafeName column_name)
-                                           comments'
+                                           (sqlStringLiteral comments')
                   Nothing -> Nothing
     
               iter (a1::String) (a2::Maybe String) accum = result' ((a1,a2):accum)
