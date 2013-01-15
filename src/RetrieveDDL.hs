@@ -6,7 +6,7 @@ module RetrieveDDL where
 import System.IO
 import System.FilePath ((</>), addExtension, isValid)
 import Data.Maybe (fromJust, isNothing, isJust, mapMaybe, fromMaybe)
-import Data.List (dropWhileEnd, intercalate, isPrefixOf)
+import Data.List (dropWhileEnd, intercalate, isPrefixOf, sortBy)
 import Data.Char (toUpper, toLower, ord)
 
 import Text.Printf (printf)
@@ -14,6 +14,9 @@ import Control.Monad (when, unless, liftM, forM)
 import Control.Monad.Trans (liftIO)
 import Database.Oracle.Enumerator
 import Data.Typeable (Typeable)
+
+import Data.Map (Map)
+import qualified Data.Map as Map
 
 import Text.Parsec
 
@@ -86,6 +89,26 @@ getSafeName = getSafeName' "1234567890QWERTYUIOPASDFGHJKLZXCVBNM_#$"
 
 getSafeName2 :: String -> String
 getSafeName2 = getSafeName' "1234567890QWERTYUIOPASDFGHJKLZXCVBNM_#$."
+
+
+newtype OracleName = ON String
+
+getNormalizedOracleName :: String -> String
+getNormalizedOracleName [] = []
+getNormalizedOracleName n =
+  if head sn /= '"' then map toUpper sn else sn
+    where
+      sn = getSafeName n
+    
+
+instance Eq OracleName where
+  ON n1 == ON n2 = getNormalizedOracleName n1 == getNormalizedOracleName n2
+
+instance Ord OracleName where
+  compare (ON n1@[]) (ON n2) = compare n1 n2
+  compare (ON n1) (ON n2@[]) = compare n1 n2
+  compare (ON n1) (ON n2) =
+    compare (getNormalizedOracleName n1) (getNormalizedOracleName n2)
 
 
 getUnionAll :: [String] -> String
@@ -639,8 +662,8 @@ retrieveTablesDDL opts = do
     saveOneFile table_name comments temporary duration = do
 
       -- Соединяем все вместе и получаем декларацию всей таблицы
-      columns_decl :: String <- getDeclColumns schema table_name
-      columns_comment_decl :: Maybe String <- getDeclColumnsComment schema table_name
+      (columns_decl :: String, columns_order :: [String]) <- getDeclColumns schema table_name
+      columns_comment_decl :: Maybe String <- getDeclColumnsComment schema table_name columns_order
       (constraints_decl, constraints) :: (Maybe String, M.Map String ())<- getDeclConstraints schema table_name
       indexes_decl :: Maybe String <- getDeclIndexes schema table_name constraints 
       let
@@ -711,12 +734,15 @@ retrieveTablesDDL opts = do
 
           columns_r <- withBoundStatement qryColumnDecl [bindP schema, bindP table_name] $ \stm ->
                          reverse `liftM` doQuery stm iter []
-  
-          return . intercalate ",\n" $ map getColumnDecl columns_r
+
+          let
+            column_order = map (\(column_name,_,_,_,_,_,_) -> column_name) columns_r
+
+          return $ (intercalate ",\n" $ map getColumnDecl columns_r, column_order)
 
 
     -- Обрабатываем комментарии для колонок
-    getDeclColumnsComment schema table_name = do
+    getDeclColumnsComment schema table_name columns_order = do
           let
               getColumnComment (column_name, comments) =
                 case comments of
@@ -731,8 +757,24 @@ retrieveTablesDDL opts = do
           columns_comments_accum <-
             withBoundStatement qryColumnComments [bindP schema, bindP table_name] $ \stm ->
               reverse `liftM` doQuery stm iter []
-      
-          let x = concatMap ("\n" ++) . mapMaybe getColumnComment $ columns_comments_accum
+
+          let columns_order_m = Map.fromList $ zip (map ON columns_order) [1..]
+          let numbered_comments = zip columns_comments_accum [1..]
+
+              
+          let x = concatMap ("\n" ++) $ mapMaybe (getColumnComment . fst) $
+                  flip sortBy numbered_comments $ \((x1,_),n1) ((x2,_),n2) ->
+                    let
+                      value_x1 = Map.lookup (ON x1) columns_order_m
+                      value_x2 = Map.lookup (ON x2) columns_order_m
+                    in
+                    case (value_x1, value_x2) of
+                      (Just x1, Just x2) -> compare x1 x2
+                      (Nothing, Nothing) -> compare n1 n2
+                      (Nothing, _) -> GT
+                      (_, Nothing) -> LT
+
+
           return $ if null x then Nothing else Just x
 
 
