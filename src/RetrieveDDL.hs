@@ -969,7 +969,7 @@ retrieveTablesDDL opts = do
               getDeclColumnIndex column_index_expressions_map (column_name, column_position, descend) =
                 strip $ M.findWithDefault column_name column_position column_index_expressions_map
                 ++
-                (if map toUpper descend == "DECS" then " DESC" else "")
+                (if map toUpper descend == "DESC" then " DESC" else "")
 
         
   case what2Retrieve of
