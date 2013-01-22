@@ -219,10 +219,10 @@ retrieveViewsDDL opts = do
         getViewDecl schema (view_name, text, comments) = do
           let
             create :: String =
-              printf "CREATE OR REPLACE VIEW %s\nAS\n%s\n/\n" (getSafeName view_name) $ clearSqlSource text
+              printf "create or replace view %s\nas\n%s\n/\n" (getSafeName view_name) $ clearSqlSource text
             comment :: String =
               case comments of
-                Just c  -> printf "\nCOMMENT ON TABLE %s\n  IS %s\n/\n" (getSafeName view_name) $ sqlStringLiteral . clearSqlSource $ c
+                Just c  -> printf "\ncomment on table %s\n  is %s\n/\n" (getSafeName view_name) $ sqlStringLiteral . clearSqlSource $ c
                 Nothing -> ""
         
             iter (a::String) (b::Maybe String) accum = result' ((a,b):accum)
@@ -230,7 +230,7 @@ retrieveViewsDDL opts = do
           r <- withBoundStatement stm_comments [bindP schema, bindP view_name] $ \bstm ->
                  (filter (\(_, x) -> isJust x) . reverse) `liftM` doQuery bstm iter []
           let column_comments :: String = concat $ flip map r $ \(column_name, comments) ->
-                printf "\nCOMMENT ON COLUMN %s.%s\n  IS %s\n/\n" (getSafeName view_name) (getSafeName column_name) (sqlStringLiteral . clearSqlSource $ fromJust comments) :: String
+                printf "\ncomment on column %s.%s\n  is %s\n/\n" (getSafeName view_name) (getSafeName column_name) (sqlStringLiteral . clearSqlSource $ fromJust comments) :: String
         
           return $ create ++ comment ++ column_comments
 
@@ -316,10 +316,10 @@ retrieveSourcesDDL opts = do
                       Right x -> return x
                       Left e -> do liftIO . printWarning $ show e
                                    return text
-          let text''' = printf "CREATE OR REPLACE\n%s\n/\n" $ clearSqlSource text''
+          let text''' = printf "create or replace\n%s\n/\n" $ clearSqlSource text''
           liftIO $ write2File (oOutputDir opts) name suffix text'''
         saveJava = do
-          let text''' = printf "CREATE OR REPLACE AND COMPILE JAVA SOURCE NAMED %s AS\n%s" safe_name text
+          let text''' = printf "create or replace and compile java source named %s as\n%s" safe_name text
           liftIO $ withFile (oOutputDir opts </> addExtension (normalizeFileName name) "java") WriteMode $ \h -> hPutStr h text'''
       case type' of
         "PACKAGE" -> saveSQL "pkg"
@@ -405,9 +405,9 @@ retrieveTriggersDDL opts = do
                   Left e -> do liftIO . printWarning $ show e
                                return descr
       let
-        text' = printf "CREATE OR REPLACE TRIGGER %s\n%s\n/\n" (clearSqlSource descr'') (clearSqlSource body)
-        text = if status == "DISABLED"
-               then text' ++ printf "\nALTER TRIGGER %s DISABLE\n/\n" safe_name
+        text' = printf "create or replace trigger %s\n%s\n/\n" (clearSqlSource descr'') (clearSqlSource body)
+        text = if status == "disabled"
+               then text' ++ printf "\nalter trigger %s disable\n/\n" safe_name
                else text'
       
       liftIO $ write2File (oOutputDir opts) name "trg" text
@@ -458,15 +458,15 @@ retrieveSynonymsDDL opts = do
     
           text :: String = case table_owner of
             Nothing ->
-               printf "CREATE SYNONYM %s\n\
-                      \           FOR %s@%s\n/\n" safe_name (getSafeName table_name) (getSafeName2 $ fromMaybe "" db_link)
+               printf "create synonym %s\n\
+                      \           for %s@%s\n/\n" safe_name (getSafeName table_name) (getSafeName2 $ fromMaybe "" db_link)
             Just table_owner'
              | getSafeName table_owner'  == getSafeName owner ->
-               printf "CREATE SYNONYM %s\n\
-                      \           FOR %s\n/\n" safe_name (getSafeName table_name) 
+               printf "create synonym %s\n\
+                      \           for %s\n/\n" safe_name (getSafeName table_name) 
              | otherwise ->
-               printf "CREATE SYNONYM %s\n\
-                      \           FOR %s.%s\n/\n" safe_name table_owner' (getSafeName table_name) 
+               printf "create synonym %s\n\
+                      \           for %s.%s\n/\n" safe_name table_owner' (getSafeName table_name) 
     
         liftIO $ write2File (oOutputDir opts) synonym_name "syn" text
 
@@ -509,24 +509,24 @@ retrieveSequencesDDL opts = do
       saveOneFile (sequence_name, increment_by, min_value, max_value, cache_size, cache_size_x, cycle_flag, order_flag) = do
         let
           decl = printf "\
-                        \CREATE SEQUENCE %s\n\
-                        \  INCREMENT BY %s\n\
-                        \  MINVALUE %s\n\
-                        \  MAXVALUE %s\n" (getSafeName sequence_name) increment_by min_value max_value
+                        \create sequence %s\n\
+                        \  increment by %s\n\
+                        \  minvalue %s\n\
+                        \  maxvalue %s\n" (getSafeName sequence_name) increment_by min_value max_value
                  ++
                  case cycle_flag of
-                    "Y" -> "  CYCLE\n"
-                    "N" -> "  NOCYCLE\n"
+                    "Y" -> "  cycle\n"
+                    "N" -> "  nocycle\n"
                     _   -> ""
                  ++
                  case order_flag of
-                    "Y" -> "  ORDER\n"
-                    "N" -> "  NOORDER\n"
+                    "Y" -> "  order\n"
+                    "N" -> "  noorder\n"
                     _   -> ""
                  ++
                  (if cache_size_x <= 0
-                  then "  NOCACHE\n"
-                  else printf "  CACHE %s\n" cache_size)
+                  then "  nocache\n"
+                  else printf "  cache %s\n" cache_size)
                  ++
                  "/\n"
                  
@@ -667,24 +667,24 @@ retrieveTablesDDL opts = do
       (constraints_decl, constraints) :: (Maybe String, M.Map String ())<- getDeclConstraints schema table_name
       indexes_decl :: Maybe String <- getDeclIndexes schema table_name constraints 
       let
-        table_spec = if temporary == "Y" then "GLOBAL TEMPORARY " else ""
+        table_spec = if temporary == "Y" then "global temporary " else ""
         temporary_decl = 
           case temporary of
             "Y" -> case duration of
-                     Just "SYS$TRANSACTION" -> "\nON COMMIT DELETE ROWS"
-                     Just "SYS$SESSION"     -> "\nON COMMIT PRESERVE ROWS"
+                     Just "SYS$TRANSACTION" -> "\non commit delete rows"
+                     Just "SYS$SESSION"     -> "\non commit preserve rows"
                      _                 -> ""
             _ -> ""
   
         decl :: String =
           printf "\
-                  \CREATE %sTABLE %s\n\
+                  \create %stable %s\n\
                   \ (\n\
                   \%s\n\
                   \ )%s\n\
                   \/\n" table_spec (getSafeName table_name) columns_decl temporary_decl
           ++
-          maybe "" (printf "\nCOMMENT ON TABLE %s\n  IS %s\n/\n" (getSafeName table_name) . sqlStringLiteral) comments
+          maybe "" (printf "\ncomment on table %s\n  is %s\n/\n" (getSafeName table_name) . sqlStringLiteral) comments
           ++
           fromMaybe "" columns_comment_decl
           ++
@@ -723,10 +723,10 @@ retrieveTablesDDL opts = do
                 -- Значение поумолчанию
                 case data_default of
                   Nothing -> ""
-                  Just data_default' -> " DEFAULT " ++ dropWhileEnd isSpace data_default'
+                  Just data_default' -> " default " ++ dropWhileEnd isSpace data_default'
                 ++
                 -- Nullable
-                if nullable == "N" then " NOT NULL" else ""
+                if nullable == "N" then " not null" else ""
   
           let
             iter (a1::String) (a2::String) (a3::Integer) (a4::Maybe Integer) (a5::Maybe Integer) (a6::String) (a7::Maybe String) accum = result' ((a1,a2,a3,a4,a5,a6,a7):accum)
@@ -746,7 +746,7 @@ retrieveTablesDDL opts = do
           let
               getColumnComment (column_name, comments) =
                 case comments of
-                  Just comments' -> Just $ printf "COMMENT ON COLUMN %s.%s\n  IS %s\n/\n"
+                  Just comments' -> Just $ printf "comment on column %s.%s\n  is %s\n/\n"
                                            (getSafeName table_name)
                                            (getSafeName column_name)
                                            (sqlStringLiteral comments')
@@ -784,11 +784,11 @@ retrieveTablesDDL opts = do
             getConstraintDecl (OraTableConstraint constraint_name constraint_type search_condition r_owner r_constraint_name delete_rule status deferrable deferred) =
               case constraint_type of
                 "P" -> -- Primary key
-                       getConstraintDecl' "PRIMARY KEY"
+                       getConstraintDecl' "primary key"
                 "R" -> -- Foreign key
-                       getConstraintDecl' "FOREIGN KEY"
+                       getConstraintDecl' "foreign key"
                 "U" -> -- Uniq key
-                       getConstraintDecl' "UNIQUE"
+                       getConstraintDecl' "unique"
                 "C" -> case search_condition of
                          Nothing -> return Nothing
                          Just sc ->
@@ -799,7 +799,7 @@ retrieveTablesDDL opts = do
                                           try (do let spaces1 = skipMany1 space
                                                   space >> string "is" >> spaces1 >> string "not" >> spaces1 >> string "null" >> spaces >> eof))
                            then return Nothing -- это просто условие not null
-                           else getConstraintDecl' $ "CHECK (" ++ sc ++ ")"
+                           else getConstraintDecl' $ "check (" ++ sc ++ ")"
                 "V" -> return Nothing
                 _   -> return Nothing
                 
@@ -814,11 +814,11 @@ retrieveTablesDDL opts = do
 
                   where
                     getCommonConstraintHeadDecl =
-                        printf "ALTER TABLE %s\n  ADD%s %s"
+                        printf "alter table %s\n  add%s %s"
                                (getSafeName table_name)
                                (if "SYS_" `isPrefixOf` map toUpper constraint_name
                                 then ""
-                                else " CONSTRAINT " ++ getSafeName constraint_name)
+                                else " constraint " ++ getSafeName constraint_name)
 
                 -- Формируем декларацию списка полей включённых в констрэйнт
                 getDeclConstraintColumns = do
@@ -869,10 +869,10 @@ retrieveTablesDDL opts = do
                           [] -> do liftIO . printWarning $ "Error while processing constraint " ++ constraint_name
                                    return ""
                           _  -> do let x = intercalate "," $ map fst r
-                                   return $ printf "\n      REFERENCES %s(%s)" r_table_name x
+                                   return $ printf "\n      references %s(%s)" r_table_name x
 
                       let delete_part = case delete_rule of
-                                          Just "CASCADE" -> "\n  ON DELETE CASCADE"
+                                          Just "cascade" -> "\n  on delete cascade"
                                           _ -> ""
 
                       return $ ref_part ++ delete_part
@@ -880,13 +880,13 @@ retrieveTablesDDL opts = do
                     _ -> return ""
 
                   let deferred_part = if deferrable == "DEFERRABLE"
-                                      then "\n  DEFERRABLE" ++
-                                           (if deferred == "DEFERRED" then " INITIALLY DEFERRED" else "")
+                                      then "\n  deferrable" ++
+                                           (if deferred == "DEFERRED" then " initially deferred" else "")
                                       else ""
 
                   status_part <- case status of
                     "ENABLED" -> return ""
-                    "DISABLED" -> return "\n  DISABLE"
+                    "DISABLED" -> return "\n  disable"
                     _ -> do let msg = printf "Unknown constraint status '%s' for constraint '%s'" status constraint_name
                             liftIO . printWarning $ msg
                             return $ "\n-- " ++ msg
@@ -922,17 +922,17 @@ retrieveTablesDDL opts = do
 
         index_columns <- getDeclIndexColumns schema index_name
         let
-          headerDecl = "CREATE"
+          headerDecl = "create"
                        ++
-                       (if uniqueness == "UNIQUE" then " UNIQUE" else "")
+                       (if uniqueness == "UNIQUE" then " unique" else "")
                        ++
-                       " INDEX " ++ getSafeName index_name
+                       " index " ++ getSafeName index_name
                        ++
                        (if table_owner == schema
-                        then printf "\n ON %s\n" (getSafeName table_name)
-                        else printf "\n ON %s.%s\n" (getSafeName table_owner) (getSafeName table_name))
+                        then printf "\n on %s\n" (getSafeName table_name)
+                        else printf "\n on %s.%s\n" (getSafeName table_owner) (getSafeName table_name))
                        ++ "  (\n" ++ (intercalate ",\n" . map ("   "++)) index_columns ++ "\n  )"
-                       ++ (if partitioned == "YES" then "\n LOCAL" else "")
+                       ++ (if partitioned == "YES" then "\n local" else "")
 
         return headerDecl
 
@@ -969,7 +969,7 @@ retrieveTablesDDL opts = do
               getDeclColumnIndex column_index_expressions_map (column_name, column_position, descend) =
                 strip $ M.findWithDefault column_name column_position column_index_expressions_map
                 ++
-                (if map toUpper descend == "DESC" then " DESC" else "")
+                (if map toUpper descend == "DESC" then " desc" else "")
 
         
   case what2Retrieve of
