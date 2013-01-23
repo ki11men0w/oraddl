@@ -639,6 +639,27 @@ retrieveTablesDDL opts = do
                     \  from sys.all_ind_expressions \n\
                     \ where index_owner = ?         \n\
                     \   and index_name = ?          ") $ \qryIndexColumnExpressions -> do
+  withPreparedStatement
+    (prepareQuery . sql $
+                    "select partitioning_type        \n\
+                    \     , subpartitioning_type     \n\
+                    \  from sys.all_part_tables      \n\
+                    \ where owner = ?                \n\
+                    \   and table_name = ?           ") $ \qryPartTables -> do
+  withPreparedStatement
+    (prepareQuery . sql $
+                    "select column_name              \n\
+                    \  from sys.all_part_key_columns \n\
+                    \ where owner = ?                \n\
+                    \   and name = ?                 \n\
+                    \order by column_position        ") $ \qryPartKeyColumns -> do
+  withPreparedStatement
+    (prepareQuery . sql $
+                    "select column_name                 \n\
+                    \  from sys.all_subpart_key_columns \n\
+                    \ where owner = ?                   \n\
+                    \   and name = ?                    \n\
+                    \order by column_position           ") $ \qrySubPartKeyColumns -> do
   let
     stm  = sqlbind
            (
@@ -663,6 +684,7 @@ retrieveTablesDDL opts = do
 
       -- Соединяем все вместе и получаем декларацию всей таблицы
       (columns_decl :: String, columns_order :: [String]) <- getDeclColumns schema table_name
+      partitions_decl <- getPartitionsDecl schema table_name
       columns_comment_decl :: Maybe String <- getDeclColumnsComment schema table_name columns_order
       (constraints_decl, constraints) :: (Maybe String, M.Map String ())<- getDeclConstraints schema table_name
       indexes_decl :: Maybe String <- getDeclIndexes schema table_name constraints 
@@ -671,18 +693,23 @@ retrieveTablesDDL opts = do
         temporary_decl = 
           case temporary of
             "Y" -> case duration of
-                     Just "SYS$TRANSACTION" -> "\non commit delete rows"
-                     Just "SYS$SESSION"     -> "\non commit preserve rows"
-                     _                 -> ""
-            _ -> ""
+                     Just "SYS$TRANSACTION" -> Just "on commit delete rows"
+                     Just "SYS$SESSION"     -> Just "on commit preserve rows"
+                     _                      -> Nothing
+            _   -> Nothing
   
         decl :: String =
           printf "\
                   \create %stable %s\n\
                   \ (\n\
                   \%s\n\
-                  \ )%s\n\
-                  \/\n" table_spec (getSafeName table_name) columns_decl temporary_decl
+                  \ )" table_spec (getSafeName table_name) columns_decl
+          ++
+          maybe "" ("\n"++) partitions_decl
+          ++
+          maybe "" ("\n"++) temporary_decl
+          ++
+          "\n/\n"
           ++
           maybe "" (printf "\ncomment on table %s\n  is %s\n/\n" (getSafeName table_name) . sqlStringLiteral) comments
           ++
@@ -971,7 +998,56 @@ retrieveTablesDDL opts = do
                 ++
                 (if map toUpper descend == "DESC" then " desc" else "")
 
-        
+    getPartitionsDecl schema table_name = do
+      let
+        iter (partitioning_type :: String) (subpartitioning_type :: String) accum =
+          result' $ if True then Just (partitioning_type, subpartitioning_type) else accum
+
+      r <- withBoundStatement qryPartTables [bindP schema, bindP table_name] $ \stm ->
+             doQuery stm iter Nothing
+
+      case r of
+        Nothing -> return Nothing
+        Just (pt, st)  -> do
+          part_key_columns_decl <- getPartKeyColumnsDecl
+          subpart_key_columns_decl <- getSubPartKeyColumnsDecl
+
+          return . Just $
+            "/*\npartition by " ++ map toLower pt
+            ++
+            maybe "" (" "++) part_key_columns_decl
+            ++
+            case st of 
+              "NONE" -> ""
+              _      -> "\nsubpartition by " ++ map toLower st
+                        ++
+                        maybe "" (" "++) subpart_key_columns_decl
+            ++ "\n*/" 
+
+        where
+          getPartKeyColumnsDecl = do
+            let
+              iter (column_name :: String) accum = result' $ column_name : accum
+
+            r <- withBoundStatement qryPartKeyColumns [bindP schema, bindP table_name] $ \stm ->
+                 (reverse . map getSafeName) `fmap` doQuery stm iter []
+            
+            return $ case r of
+              [] -> Nothing
+              _  -> Just $ "(" ++ intercalate "," r ++ ")"
+
+          getSubPartKeyColumnsDecl = do
+            let
+              iter (column_name :: String) accum = result' $ column_name : accum
+
+            r <- withBoundStatement qrySubPartKeyColumns [bindP schema, bindP table_name] $ \stm ->
+                 (reverse . map getSafeName) `fmap` doQuery stm iter []
+            
+            return $ case r of
+              [] -> Nothing
+              _  -> Just $ "(" ++ intercalate "," r ++ ")"
+
+
   case what2Retrieve of
     None -> return ()
     _    -> doQuery stm iter ()
