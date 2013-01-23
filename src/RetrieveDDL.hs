@@ -663,12 +663,16 @@ retrieveTablesDDL opts = do
   let
     stm  = sqlbind
            (
-            "select a.table_name, b.comments, a.temporary, a.duration \n\
-            \  from sys.all_tables a,                                 \n\
-            \       sys.all_tab_comments b                            \n\
-            \ where a.owner = ?                                       \n\
-            \   and b.owner = ?                                       \n\
-            \   and a.table_name=b.table_name \n"
+            "select a.table_name                 \n\
+            \     , b.comments                   \n\
+            \     , a.temporary                  \n\
+            \     , a.duration                   \n\
+            \     , a.row_movement               \n\
+            \  from sys.all_tables a,            \n\
+            \       sys.all_tab_comments b       \n\
+            \ where a.owner = ?                  \n\
+            \   and b.owner = ?                  \n\
+            \   and a.table_name=b.table_name    \n"
             ++
             case what2Retrieve of
               JustList lst ->
@@ -677,10 +681,10 @@ retrieveTablesDDL opts = do
            )
            [bindP schema, bindP schema]
    
-    iter (a1::String) (a2::Maybe String) (a3::String) (a4::Maybe String) accum = saveOneFile a1 a2 a3 a4 >> result' accum
+    iter (a1::String) (a2::Maybe String) (a3::String) (a4::Maybe String) (a5::String) accum = saveOneFile a1 a2 a3 a4 a5 >> result' accum
 
     -- Сохраняет одну таблицу
-    saveOneFile table_name comments temporary duration = do
+    saveOneFile table_name comments temporary duration row_movement = do
 
       -- Соединяем все вместе и получаем декларацию всей таблицы
       (columns_decl :: String, columns_order :: [String]) <- getDeclColumns schema table_name
@@ -706,6 +710,10 @@ retrieveTablesDDL opts = do
                   \ )" table_spec (getSafeName table_name) columns_decl
           ++
           maybe "" ("\n"++) partitions_decl
+          ++
+          case row_movement of
+            "ENABLED" -> "\nenable row movement"
+            _ -> ""
           ++
           maybe "" ("\n"++) temporary_decl
           ++
