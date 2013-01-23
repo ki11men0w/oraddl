@@ -668,30 +668,33 @@ retrieveTablesDDL opts = do
             \     , a.temporary                  \n\
             \     , a.duration                   \n\
             \     , a.row_movement               \n\
+            \     , a.cache                      \n\
+            \     , a.iot_type                   \n\
             \  from sys.all_tables a,            \n\
             \       sys.all_tab_comments b       \n\
             \ where a.owner = ?                  \n\
-            \   and b.owner = ?                  \n\
-            \   and a.table_name=b.table_name    \n"
+            \   and a.owner = b.owner(+)         \n\
+            \   and a.table_name=b.table_name(+) \n"
             ++
             case what2Retrieve of
               JustList lst ->
                 printf "   and a.table_name in (%s) \n" $ getUnionAll lst
               _ -> ""
            )
-           [bindP schema, bindP schema]
+           [bindP schema]
    
-    iter (a1::String) (a2::Maybe String) (a3::String) (a4::Maybe String) (a5::String) accum = saveOneFile a1 a2 a3 a4 a5 >> result' accum
+    iter (a1::String) (a2::Maybe String) (a3::String) (a4::Maybe String) (a5::String) (a6::String) (a7::Maybe String) accum = saveOneFile a1 a2 a3 a4 a5 a6 a7 >> result' accum
 
     -- Сохраняет одну таблицу
-    saveOneFile table_name comments temporary duration row_movement = do
+    saveOneFile table_name comments temporary duration row_movement cache iot_type = do
 
       -- Соединяем все вместе и получаем декларацию всей таблицы
-      (columns_decl :: String, columns_order :: [String]) <- getDeclColumns schema table_name
+      (columns_decl :: Maybe String, columns_order :: [String]) <- getDeclColumns schema table_name
       partitions_decl <- getPartitionsDecl schema table_name
       columns_comment_decl :: Maybe String <- getDeclColumnsComment schema table_name columns_order
       (constraints_decl, constraints) :: (Maybe String, M.Map String ())<- getDeclConstraints schema table_name
       indexes_decl :: Maybe String <- getDeclIndexes schema table_name constraints 
+      iot_decl :: Maybe String <- getIOTDecl iot_type
       let
         table_spec = if temporary == "Y" then "global temporary " else ""
         temporary_decl = 
@@ -704,12 +707,17 @@ retrieveTablesDDL opts = do
   
         decl :: String =
           printf "\
-                  \create %stable %s\n\
-                  \ (\n\
-                  \%s\n\
-                  \ )" table_spec (getSafeName table_name) columns_decl
+                  \create %stable %s" table_spec (getSafeName table_name)
+          ++
+          maybe "" (\x-> "\n (\n" ++ x ++ "\n )") columns_decl
+          ++
+          maybe "" ("\n"++) iot_decl
           ++
           maybe "" ("\n"++) partitions_decl
+          ++
+          case cache of
+            "Y" -> "\ncache"
+            _ -> ""
           ++
           case row_movement of
             "ENABLED" -> "\nenable row movement"
@@ -772,8 +780,10 @@ retrieveTablesDDL opts = do
 
           let
             column_order = map (\(column_name,_,_,_,_,_,_) -> column_name) columns_r
+            decl = if null columns_r then Nothing
+                   else Just $ intercalate ",\n" $ map getColumnDecl columns_r
 
-          return $ (intercalate ",\n" $ map getColumnDecl columns_r, column_order)
+          return $ (decl, column_order)
 
 
     -- Обрабатываем комментарии для колонок
@@ -1055,6 +1065,13 @@ retrieveTablesDDL opts = do
               [] -> Nothing
               _  -> Just $ "(" ++ intercalate "," r ++ ")"
 
+
+    getIOTDecl iot_type = do
+      return $ case iot_type of
+        Just "IOT" -> Just "organization index"
+        Just "IOT_OVERFLOW" -> Just "organization index"
+        _     -> Nothing
+        
 
   case what2Retrieve of
     None -> return ()
