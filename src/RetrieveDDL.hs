@@ -917,8 +917,9 @@ retrieveTablesDDL opts = do
                                    return $ printf "\n      references %s(%s)" r_table_name x
 
                       let delete_part = case delete_rule of
-                                          Just rule  -> "\n      on delete " ++ map toLower rule
-                                          _ -> ""
+                                          Just "NO ACTION" -> ""
+                                          Just rule        -> "\n      on delete " ++ map toLower rule
+                                          _                -> ""
 
                       return $ ref_part ++ delete_part
 
