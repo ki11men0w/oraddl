@@ -692,7 +692,11 @@ retrieveTablesDDL opts = do
       (columns_decl :: Maybe String, columns_order :: [String]) <- getDeclColumns schema table_name
       partitions_decl <- getPartitionsDecl schema table_name
       columns_comment_decl :: Maybe String <- getDeclColumnsComment schema table_name columns_order
-      (constraints_decl, constraints) :: (Maybe String, M.Map String ())<- getDeclConstraints schema table_name
+      constraints_list <- getConstraintsList schema table_name
+      let constraints = M.fromList $ map (\x -> (constraint_name x, ())) constraints_list
+      inline_constraints_decl :: Maybe String <-
+        getConstraintsDeclInline schema table_name (if isJust iot_type then onlyPrimaryKey else const False) constraints_list
+      constraints_decl :: Maybe String <- getConstraintsDecl schema table_name (if isJust iot_type then notPrimaryKey else const True) constraints_list
       indexes_decl :: Maybe String <- getDeclIndexes schema table_name constraints 
       iot_decl :: Maybe String <- getIOTDecl iot_type
       let
@@ -709,7 +713,13 @@ retrieveTablesDDL opts = do
           printf "\
                   \create %stable %s" table_spec (getSafeName table_name)
           ++
-          maybe "" (\x-> "\n (\n" ++ x ++ "\n )") columns_decl
+          (if (isJust columns_decl) || (isJust inline_constraints_decl) then
+             "\n (\n"
+             ++
+             (intercalate ",\n" . map fromJust . filter isJust $ [columns_decl, inline_constraints_decl])
+             ++
+             "\n )"
+           else "")
           ++
           maybe "" ("\n"++) iot_decl
           ++
@@ -822,135 +832,146 @@ retrieveTablesDDL opts = do
 
           return $ if null x then Nothing else Just x
 
+    -- Получаем декларацию отделного констрэйнта
+    getConstraintDecl schema table_name (OraTableConstraint constraint_name constraint_type search_condition r_owner r_constraint_name delete_rule status deferrable deferred) =
+      case constraint_type of
+        "P" -> -- Primary key
+               getConstraintDecl' "primary key"
+        "R" -> -- Foreign key
+               getConstraintDecl' "foreign key"
+        "U" -> -- Uniq key
+               getConstraintDecl' "unique"
+        "C" -> case search_condition of
+                 Nothing -> return Nothing
+                 Just sc ->
+                   -- if (map toLower sc) =~ "^[ \n\r\t\0]*[^ \n\r\t\0]+[ \n\r\t\0]+is[ \n\r\t\0]+not[ \n\r\t\0]+null[ \n\r\t\0]*$" :: Bool
+                   if parseMatch
+                        (map toLower sc)
+                        (manyTill anyChar $
+                                  try (do let spaces1 = skipMany1 space
+                                          space >> string "is" >> spaces1 >> string "not" >> spaces1 >> string "null" >> spaces >> eof))
+                   then return Nothing -- это просто условие not null
+                   else getConstraintDecl' $ "check (" ++ sc ++ ")"
+        "V" -> return Nothing
+        _   -> return Nothing
+
+
+      where
+
+        getConstraintDecl' ctype = do
+          columns_decl :: Maybe String <- getDeclConstraintColumns
+          tail_decl :: String <- getDeclConstraintTail
+
+          return . Just $ getCommonConstraintHeadDecl ctype ++ maybe "" (" " ++) columns_decl ++ tail_decl
+
+          where
+            getCommonConstraintHeadDecl=
+              ((if "SYS_" `isPrefixOf` map toUpper constraint_name then ""
+                else "constraint " ++ getSafeName constraint_name ++ " ") ++)
+
+        -- Формируем декларацию списка полей включённых в констрэйнт
+        getDeclConstraintColumns = do
+          let
+            iter (a1::String) accum = result' (a1:accum)
+
+          r <- 
+            withBoundStatement qryConstraintColumns1 [bindP schema, bindP table_name, bindP constraint_name] $ \stm ->
+              reverse `liftM` doQuery stm iter []
+
+          let
+            columns = filter (not . null) $ flip map r $ \column_name ->
+              case constraint_type of
+                "P" -> column_name
+                "R" -> column_name
+                "U" -> column_name
+                _ -> ""
+
+          return $ case columns of
+                     [] -> Nothing
+                     _  -> Just $ printf "(%s)" $ intercalate "," columns
+
+        -- Формируем заклччительную часть констрэйнта
+        getDeclConstraintTail = do
+
+          part1 <- case constraint_type of
+            "R" -> do -- Foreign key
+              let
+                iter (a1::String) (a2::String) accum = result' ((a1,a2):accum)
+
+              r <-
+                withBoundStatement qryConstraintColumns2 [bindP $ fromJust r_owner, bindP $ fromJust r_constraint_name] $ \stm ->
+                  reverse `liftM` doQuery stm iter []
+
+              let
+                r_table_name' = getSafeName . snd . head $ r
+                r_table_name =
+                  case r_owner of
+                    Nothing -> r_table_name'
+                    Just r_owner'
+                         | r_owner' == schema -> r_table_name'
+                         -- Владелец таблицы на которую ссылаемся не совпадает с владельцем
+                         -- ключа, поэтому указываем схему владельца таблицы явно
+                         | otherwise -> getSafeName r_owner' ++ "." ++ r_table_name'
+
+              ref_part <-
+                case r of
+                  [] -> do liftIO . printWarning $ "Error while processing constraint " ++ constraint_name
+                           return ""
+                  _  -> do let x = intercalate "," $ map fst r
+                           return $ printf "\n      references %s(%s)" r_table_name x
+
+              let delete_part = case delete_rule of
+                                  Just "NO ACTION" -> ""
+                                  Just rule  -> "\n      on delete " ++ map toLower rule
+                                  _ -> ""
+
+              return $ ref_part ++ delete_part
+
+            _ -> return ""
+
+          let deferred_part = if deferrable == "DEFERRABLE"
+                              then "\n  deferrable" ++
+                                   (if deferred == "DEFERRED" then " initially deferred" else "")
+                              else ""
+
+          status_part <- case status of
+            "ENABLED" -> return ""
+            "DISABLED" -> return "\n  disable"
+            _ -> do let msg = printf "Unknown constraint status '%s' for constraint '%s'" status constraint_name
+                    liftIO . printWarning $ msg
+                    return $ "\n-- " ++ msg
+
+          return $ part1 ++ deferred_part ++ status_part
+
 
     -- Обрабатываем констрэйнты
-    getDeclConstraints schema table_name = do
+    getConstraintsDecl schema table_name filter_func (constraints::[OraTableConstraint]) = do
+          decls <- getConstraintsDeclList schema table_name filter_func constraints
           let
-            getConstraintDecl (OraTableConstraint constraint_name constraint_type search_condition r_owner r_constraint_name delete_rule status deferrable deferred) =
-              case constraint_type of
-                "P" -> -- Primary key
-                       getConstraintDecl' "primary key"
-                "R" -> -- Foreign key
-                       getConstraintDecl' "foreign key"
-                "U" -> -- Uniq key
-                       getConstraintDecl' "unique"
-                "C" -> case search_condition of
-                         Nothing -> return Nothing
-                         Just sc ->
-                           -- if (map toLower sc) =~ "^[ \n\r\t\0]*[^ \n\r\t\0]+[ \n\r\t\0]+is[ \n\r\t\0]+not[ \n\r\t\0]+null[ \n\r\t\0]*$" :: Bool
-                           if parseMatch
-                                (map toLower sc)
-                                (manyTill anyChar $
-                                          try (do let spaces1 = skipMany1 space
-                                                  space >> string "is" >> spaces1 >> string "not" >> spaces1 >> string "null" >> spaces >> eof))
-                           then return Nothing -- это просто условие not null
-                           else getConstraintDecl' $ "check (" ++ sc ++ ")"
-                "V" -> return Nothing
-                _   -> return Nothing
-                
-              
-              where
+            decls_str = if null decls then Nothing
+                        else Just . intercalate "\n" . map (++"\n/\n") . map ((printf "alter table %s\n  add " (getSafeName table_name)) ++) $ decls
+          return decls_str
 
-                getConstraintDecl' ctype = do
-                  columns_decl :: Maybe String <- getDeclConstraintColumns
-                  tail_decl :: String <- getDeclConstraintTail
+    getConstraintsDeclInline schema table_name filter_func (constraints::[OraTableConstraint]) = do
+          decls <- getConstraintsDeclList schema table_name filter_func constraints
+          let
+            decls_str = if null decls then Nothing
+                        else Just . intercalate ",\n" . map ("  "++) $ decls
+          return decls_str
 
-                  return . Just $ getCommonConstraintHeadDecl ctype ++ maybe "" (" " ++) columns_decl ++ tail_decl
-
-                  where
-                    getCommonConstraintHeadDecl =
-                        printf "alter table %s\n  add%s %s"
-                               (getSafeName table_name)
-                               (if "SYS_" `isPrefixOf` map toUpper constraint_name
-                                then ""
-                                else " constraint " ++ getSafeName constraint_name)
-
-                -- Формируем декларацию списка полей включённых в констрэйнт
-                getDeclConstraintColumns = do
-                  let
-                    iter (a1::String) accum = result' (a1:accum)
-                  
-                  r <- 
-                    withBoundStatement qryConstraintColumns1 [bindP schema, bindP table_name, bindP constraint_name] $ \stm ->
-                      reverse `liftM` doQuery stm iter []
-                 
-                  let
-                    columns = filter (not . null) $ flip map r $ \column_name ->
-                      case constraint_type of
-                        "P" -> column_name
-                        "R" -> column_name
-                        "U" -> column_name
-                        _ -> ""
-                  
-                  return $ case columns of
-                             [] -> Nothing
-                             _  -> Just $ printf "(%s)" $ intercalate "," columns
-              
-                -- Формируем заклччительную часть констрэйнта
-                getDeclConstraintTail = do
-
-                  part1 <- case constraint_type of
-                    "R" -> do -- Foreign key
-                      let
-                        iter (a1::String) (a2::String) accum = result' ((a1,a2):accum)
-    
-                      r <-
-                        withBoundStatement qryConstraintColumns2 [bindP $ fromJust r_owner, bindP $ fromJust r_constraint_name] $ \stm ->
-                          reverse `liftM` doQuery stm iter []
-
-                      let
-                        r_table_name' = getSafeName . snd . head $ r
-                        r_table_name =
-                          case r_owner of
-                            Nothing -> r_table_name'
-                            Just r_owner'
-                                 | r_owner' == schema -> r_table_name'
-                                 -- Владелец таблицы на которую ссылаемся не совпадает с владельцем
-                                 -- ключа, поэтому указываем схему владельца таблицы явно
-                                 | otherwise -> getSafeName r_owner' ++ "." ++ r_table_name'
-
-                      ref_part <-
-                        case r of
-                          [] -> do liftIO . printWarning $ "Error while processing constraint " ++ constraint_name
-                                   return ""
-                          _  -> do let x = intercalate "," $ map fst r
-                                   return $ printf "\n      references %s(%s)" r_table_name x
-
-                      let delete_part = case delete_rule of
-                                          Just "NO ACTION" -> ""
-                                          Just rule        -> "\n      on delete " ++ map toLower rule
-                                          _                -> ""
-
-                      return $ ref_part ++ delete_part
-
-                    _ -> return ""
-
-                  let deferred_part = if deferrable == "DEFERRABLE"
-                                      then "\n  deferrable" ++
-                                           (if deferred == "DEFERRED" then " initially deferred" else "")
-                                      else ""
-
-                  status_part <- case status of
-                    "ENABLED" -> return ""
-                    "DISABLED" -> return "\n  disable"
-                    _ -> do let msg = printf "Unknown constraint status '%s' for constraint '%s'" status constraint_name
-                            liftIO . printWarning $ msg
-                            return $ "\n-- " ++ msg
-
-                  return $ part1 ++ deferred_part ++ status_part
-
+    getConstraintsList schema table_name = do
           let
             iter a1 a2 a3 a4 a5 a6 a7 a8 a9 accum = result' $ OraTableConstraint a1 a2 a3 a4 a5 a6 a7 a8 a9 : accum
     
-          constraint_accum <-
-            withBoundStatement qryConstraintDecl [bindP schema, bindP table_name] $ \stm ->
-              reverse `liftM` doQuery stm iter []
+          withBoundStatement qryConstraintDecl [bindP schema, bindP table_name] $ \stm ->
+            reverse `liftM` doQuery stm iter []
 
-          let constraints = M.fromList . flip map constraint_accum $ \x -> (constraint_name x, ())
+    -- Возвращает список деклараций констрэйнтов
+    getConstraintsDeclList schema table_name filter_func (constraints::[OraTableConstraint]) =
+          (map fromJust . filter isJust)
+          `liftM`
+          (mapM (getConstraintDecl schema table_name) (filter filter_func constraints))
 
-          x <- liftM (intercalate "\n" . map ((++"\n/\n") . fromJust) . filter isJust) $ mapM getConstraintDecl constraint_accum
-          return (if null x then Nothing else Just x, constraints)
-  
     -- Снимаем индексы
     getDeclIndexes schema table_name constraints = do
       let
@@ -1072,7 +1093,12 @@ retrieveTablesDDL opts = do
         Just "IOT" -> Just "organization index"
         Just "IOT_OVERFLOW" -> Just "organization index"
         _     -> Nothing
-        
+
+    onlyPrimaryKey :: OraTableConstraint -> Bool
+    onlyPrimaryKey x = constraint_type x == "P"
+
+    notPrimaryKey :: OraTableConstraint -> Bool
+    notPrimaryKey x = constraint_type x /= "P"
 
   case what2Retrieve of
     None -> return ()
