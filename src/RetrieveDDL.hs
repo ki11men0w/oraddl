@@ -741,9 +741,9 @@ retrieveTablesDDL opts = do
           ++
           fromMaybe "" columns_comment_decl
           ++
-          maybe "" ("\n"++) constraints_decl
-          ++
           maybe "" ("\n"++) indexes_decl
+          ++
+          maybe "" ("\n"++) constraints_decl
                 
       liftIO $ write2File (oOutputDir opts) table_name "tab" decl
   
