@@ -30,7 +30,8 @@ data Flags = Flags
                list :: Maybe [String],
                listf :: Maybe FilePath,
                directory :: String,
-               saveEndSpaces :: Bool
+               saveEndSpaces :: Bool,
+               saveAutoIndexes :: Bool
              } deriving (Show, Data, Typeable)
 
 getOpts :: IO Flags
@@ -93,7 +94,11 @@ getOpts = do
           saveEndSpaces =
             def
             &= explicit &= name "save-end-spaces"
-            &= help "By default insignificant spaces at end of each line are deleted, this option prevent this behavior"
+            &= help "By default insignificant spaces at end of each line are deleted, this option prevent this behavior",
+          saveAutoIndexes =
+            def
+            &= explicit &= name "save-auto-indexes"
+            &= help "By default auto-generated indexes (like indexes supporting constraints) not saved, this option enables auto-generated indexes"
           }
         &= program programName
         &= summary ("Retrieves DDL for all or specified objects of oracle database schema. Version " ++ programVersion)
@@ -134,7 +139,8 @@ translateOptions flags = do
                      oTriggers  = uniqify `fmap` triggers flags
                    },
     oOutputDir = directory flags,
-    oSaveEndSpaces = saveEndSpaces flags
+    oSaveEndSpaces = saveEndSpaces flags,
+    oSaveAutoIndexes = saveAutoIndexes flags
     }
   where
     uniqify = M.keys . M.fromList . map (\x -> (x,())) . filter (not . null)

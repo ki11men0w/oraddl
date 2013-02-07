@@ -58,7 +58,8 @@ data Options = Options
                  oObjList :: Maybe [String],
                  oByTypeLists :: ByTypeLists,
                  oOutputDir :: String,
-                 oSaveEndSpaces :: Bool
+                 oSaveEndSpaces :: Bool,
+                 oSaveAutoIndexes :: Bool
                }
 
 getDefaultSchema = do
@@ -611,8 +612,17 @@ retrieveTablesDDL opts = do
                     \     , table_owner   \n\
                     \     , partitioned   \n\
                     \from sys.all_indexes \n\
-                    \where owner = ?      \n\
-                    \and table_name = ?   \n\
+                    \where owner = ?      \n"
+                    ++ 
+                    (
+                    if oSaveAutoIndexes opts
+                    then
+                    ""
+                    else
+                    "and generated = 'N'  \n"
+                    )
+                    ++
+                    "and table_name = ?   \n\
                     \order by index_name  ") $ \qryIndexes -> do
   withPreparedStatement    
     (prepareQuery . sql $
@@ -697,7 +707,7 @@ retrieveTablesDDL opts = do
       inline_constraints_decl :: Maybe String <-
         getConstraintsDeclInline schema table_name (if isJust iot_type then onlyPrimaryKey else const False) constraints_list
       constraints_decl :: Maybe String <- getConstraintsDecl schema table_name (if isJust iot_type then notPrimaryKey else const True) constraints_list
-      indexes_decl :: Maybe String <- getDeclIndexes schema table_name constraints 
+      indexes_decl :: Maybe String <- getDeclIndexes schema table_name $ if oSaveAutoIndexes opts then Map.empty else constraints 
       iot_decl :: Maybe String <- getIOTDecl iot_type
       let
         table_spec = if temporary == "Y" then "global temporary " else ""
