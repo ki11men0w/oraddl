@@ -21,13 +21,13 @@ data Flags = Flags
              {
                conn :: Maybe String,
                schema :: Maybe String,
-               tables :: Maybe [String],
-               views :: Maybe [String],
-               sources :: Maybe [String],
-               triggers :: Maybe [String],
-               synonyms :: Maybe [String],
-               sequences :: Maybe [String],
-               list :: Maybe [String],
+               tables :: Maybe String,
+               views :: Maybe String,
+               sources :: Maybe String,
+               triggers :: Maybe String,
+               synonyms :: Maybe String,
+               sequences :: Maybe String,
+               list :: Maybe String,
                listf :: Maybe FilePath,
                directory :: String,
                saveEndSpaces :: Bool,
@@ -121,6 +121,10 @@ main = do
   
   return ()
 
+
+splitByComma :: String -> [String]
+splitByComma = filter (/=",") . groupBy (\x y -> x/=',' && y/=',')
+
 translateOptions :: Flags -> IO Options
 translateOptions flags = do
   obj_list <- getObjList
@@ -131,12 +135,12 @@ translateOptions flags = do
     oSchema = schema flags,
     oObjList = obj_list,
     oByTypeLists = ByTypeLists {
-                     oTables    = uniqify `fmap` tables flags,
-                     oViews     = uniqify `fmap` views flags,
-                     oSources   = uniqify `fmap` sources flags,
-                     oSequences = uniqify `fmap` sequences flags,
-                     oSynonyms  = uniqify `fmap` synonyms flags,
-                     oTriggers  = uniqify `fmap` triggers flags
+                     oTables    = (uniqify . splitByComma) `fmap` tables flags,
+                     oViews     = (uniqify . splitByComma) `fmap` views flags,
+                     oSources   = (uniqify . splitByComma) `fmap` sources flags,
+                     oSequences = (uniqify . splitByComma) `fmap` sequences flags,
+                     oSynonyms  = (uniqify . splitByComma) `fmap` synonyms flags,
+                     oTriggers  = (uniqify . splitByComma) `fmap` triggers flags
                    },
     oOutputDir = directory flags,
     oSaveEndSpaces = saveEndSpaces flags,
@@ -156,7 +160,7 @@ translateOptions flags = do
                  ]
         _ -> return []
       
-      let x = uniqify $ ox ++ fromMaybe [] (list flags)
+      let x = uniqify $ ox ++ fromMaybe [] (splitByComma `fmap` list flags)
       return $ if null x then Nothing else Just x
 
 
