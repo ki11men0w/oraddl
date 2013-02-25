@@ -67,10 +67,10 @@ getDefaultSchema = do
     iter (a::String) accum = result' $ if True then a else accum
   doQuery (sql "select user from dual") iter []
   
-getSchema schema =
-  case schema of
-    Just s -> return s
-    _      -> getDefaultSchema
+getSchema schema = getDefaultSchema
+  -- case schema of
+  --   Just s -> return s
+  --   _      -> getDefaultSchema
   
 
 getSafeName' :: String -> String -> String
@@ -190,27 +190,23 @@ retrieveViewsDDL opts = do
   withPreparedStatement 
     (prepareQuery . sql $
                     "select column_name, comments \n\
-                    \  from sys.all_col_comments  \n\
-                    \ where owner = ?             \n\
-                    \   and table_name = ?        \n\
+                    \  from user_col_comments     \n\
+                    \ where table_name = ?        \n\
                     \ order by column_name        \n") $ \stm_comments -> do
   let
     iter (a::String) (b::String) (c::Maybe String) accum = saveOneFile (oOutputDir opts) schema (a,b,c) >> result' accum
-    stm = sqlbind
+    stm = sql
           (
            "select a.view_name, a.text, b.comments \n\
-           \  from sys.all_views a,                \n\
-           \       sys.all_tab_comments b          \n\
-           \ where a.owner = ?                     \n\
-           \   and a.owner = b.owner(+)            \n\
-           \   and a.view_name=b.table_name(+)     \n"
+           \  from user_views a,                   \n\
+           \       user_tab_comments b             \n\
+           \ where a.view_name=b.table_name(+)     \n"
            ++
            case what2Retrieve of
              JustList lst ->
                printf "   and a.view_name in (%s) \n" $ getUnionAll lst
              _ -> ""
           )
-          [bindP schema]
   
     saveOneFile outputDir schema viewInfo@(view_name, _, _) = do
       decl <- getViewDecl schema viewInfo
@@ -228,7 +224,7 @@ retrieveViewsDDL opts = do
         
             iter (a::String) (b::Maybe String) accum = result' ((a,b):accum)
 
-          r <- withBoundStatement stm_comments [bindP schema, bindP view_name] $ \bstm ->
+          r <- withBoundStatement stm_comments [bindP view_name] $ \bstm ->
                  (filter (\(_, x) -> isJust x) . reverse) `liftM` doQuery bstm iter []
           let column_comments :: String = concat $ flip map r $ \(column_name, comments) ->
                 printf "\ncomment on column %s.%s\n  is %s\n/\n" (getSafeName view_name) (getSafeName column_name) (sqlStringLiteral . clearSqlSource $ fromJust comments) :: String
@@ -253,12 +249,11 @@ retrieveSourcesDDL opts = do
               do unless (null prevName) $ saveOneFile prevName prevType' collectedText
                  result' (True, name, type', [text])
 
-    stm = sqlbind
+    stm = sql
           (
            "select name, type, text                                          \n\
-           \  from sys.all_source                                            \n\
-           \ where owner = ?                                                 \n\ 
-           \   and type in ('PACKAGE','PACKAGE BODY','PROCEDURE','FUNCTION', \n\
+           \  from user_source                                               \n\
+           \ where type in ('PACKAGE','PACKAGE BODY','PROCEDURE','FUNCTION', \n\
            \                'TYPE', 'TYPE BODY', 'JAVA SOURCE')              \n"
            ++
            case what2Retrieve of
@@ -266,9 +261,8 @@ retrieveSourcesDDL opts = do
                printf "   and name in (%s) \n" $ getUnionAll lst
              _ -> ""
            ++
-           " order by owner,type,name,line "
+           " order by type,name,line "
           )
-          [bindP schema]
 
 
   case what2Retrieve of
@@ -339,18 +333,16 @@ retrieveTriggersDDL opts = do
     what2Retrieve = getObjectList opts oTriggers
   
   let
-    iter (a::String) (b::String) (c::String) (d::String) (e::String) accum = saveOneFile (a,b,c,d,e) >> result' accum
-    stm = sqlbind (
-                   "select owner,trigger_name,description,trigger_body,status        \n\
-                   \  from sys.all_triggers                                          \n\
-                   \ where owner = ?                                                 \n"
+    iter (b::String) (c::String) (d::String) (e::String) accum = saveOneFile (schema,b,c,d,e) >> result' accum
+    stm = sql    (
+                   "select trigger_name,description,trigger_body,status      \n\
+                   \  from user_triggers                                     "
                    ++
                    case what2Retrieve of
                      JustList lst ->
                        printf "   and trigger_name in (%s) \n" $ getUnionAll lst
                      _ -> ""
                   )
-                  [bindP schema]
 
   case what2Retrieve of
     None -> return ()
@@ -423,29 +415,27 @@ retrieveSynonymsDDL opts = do
     iter (a::Bool) accum = result' $ True || accum
     -- Определяем есть ли колонка DB_LINK
     sql' = "select 'True'                    \n\
-           \  from sys.all_tab_columns       \n\
-           \ where table_name='ALL_SYNONYMS' \n\
-           \   and COLUMN_NAME = 'DB_LINK'   \n\
+           \  from all_tab_columns           \n\
+           \ where table_name='USER_SYNONYMS'\n\
+           \   and column_name = 'DB_LINK'   \n\
            \   and rownum = 1                "
 
   dbLinkColumnExists <- doQuery (sql sql') iter False
 
   let
-    iter (a::String) (b::String) (c::Maybe String) (d::String) (e::Maybe String) accum = saveOneFile (a,b,c,d,e) >> result' accum
-    sql'  = "select owner            \n\
-            \      ,synonym_name     \n\
+    iter (b::String) (c::Maybe String) (d::String) (e::Maybe String) accum = saveOneFile (schema,b,c,d,e) >> result' accum
+    sql'  = "select synonym_name     \n\
             \      ,table_owner      \n\
             \      ,table_name       \n\
             \      ,%s as db_link    \n\
-            \  from sys.all_synonyms \n\
-            \ where owner = ?        \n"
+            \  from user_synonyms    "
             ++
             case what2Retrieve of
               JustList lst ->
                 printf "   and synonym_name in (%s) \n" $ getUnionAll lst
               _ -> ""
 
-    stm = sqlbind (printf sql' $ if dbLinkColumnExists then "db_link" else "null") [bindP schema]
+    stm = sql $ printf sql' $ if dbLinkColumnExists then "db_link" else "null"
 
   case what2Retrieve of
     None -> return ()
@@ -481,7 +471,7 @@ retrieveSequencesDDL opts = do
     iter (a1::String) (a2::String) (a3::String) (a4::String) (a5::String) (a6::Integer) (a7::String) (a8::String) accum =
       saveOneFile (a1, a2, a3, a4, a5, a6, a7, a8) >> result' accum
     
-    stm  = sqlbind
+    stm  = sql
            (
             "select sequence_name                         \n\
             \      ,to_char(increment_by) as increment_by \n\
@@ -491,15 +481,13 @@ retrieveSequencesDDL opts = do
             \      ,cache_size as cache_size_x            \n\
             \      ,cycle_flag                            \n\
             \      ,order_flag                            \n\
-            \  from sys.all_sequences                     \n\
-            \ where sequence_owner = ?                    \n"
+            \  from user_sequences                        "
             ++
             case what2Retrieve of
               JustList lst ->
                 printf "   and sequence_name in (%s) \n" $ getUnionAll lst
               _ -> ""
            )
-           [bindP schema]
 
 
   case what2Retrieve of
@@ -562,32 +550,28 @@ retrieveTablesDDL opts = do
                     \       data_scale,         \n\
                     \       nullable,           \n\
                     \       data_default        \n\
-                    \  from sys.all_tab_columns \n\
-                    \ where owner = ?           \n\
-                    \   and table_name = ?      \n\
+                    \  from user_tab_columns    \n\
+                    \ where table_name = ?      \n\
                     \order by column_id         \n") $ \qryColumnDecl -> do
   withPreparedStatement
     (prepareQuery . sql $
                     "select column_name, comments \n\
-                    \  from sys.all_col_comments  \n\
-                    \ where owner = ?             \n\
-                    \   and table_name = ?        \n\
+                    \  from user_col_comments     \n\
+                    \ where table_name = ?        \n\
                     \order by column_name         ") $ \qryColumnComments -> do
   withPreparedStatement                     
     (prepareQuery . sql $
                     "select column_name            \n\
-                    \  from sys.all_cons_columns   \n\
-                    \ where owner = ?              \n\
-                    \   and table_name = ?         \n\
+                    \  from user_cons_columns      \n\
+                    \ where table_name = ?         \n\
                     \   and constraint_name = ?    \n\
                     \order by position             ") $ \qryConstraintColumns1 -> do
   withPreparedStatement
     (prepareQuery . sql $
                     "select column_name,           \n\
                     \       table_name             \n\
-                    \  from sys.all_cons_columns   \n\
-                    \ where owner = ?              \n\
-                    \   and constraint_name = ?    \n\
+                    \  from user_cons_columns      \n\
+                    \ where constraint_name = ?    \n\
                     \order by position             ") $ \qryConstraintColumns2 -> do
   withPreparedStatement
     (prepareQuery . sql $
@@ -600,9 +584,8 @@ retrieveTablesDDL opts = do
                     \       status,                                                     \n\
                     \       deferrable,                                                 \n\
                     \       deferred                                                    \n\
-                    \  from sys.all_constraints                                         \n\
-                    \ where owner = ?                                                   \n\
-                    \   and table_name = ?                                              \n\
+                    \  from user_constraints                                            \n\
+                    \ where table_name = ?                                              \n\
                     \order by decode(constraint_type, 'P',1, 'R',2, 'U',3, 'C',4, 100), \n\
                     \         constraint_name") $ \qryConstraintDecl -> do
   withPreparedStatement
@@ -611,8 +594,8 @@ retrieveTablesDDL opts = do
                     \     , uniqueness    \n\
                     \     , table_owner   \n\
                     \     , partitioned   \n\
-                    \from sys.all_indexes \n\
-                    \where owner = ?      \n"
+                    \from user_indexes    \n\
+                    \where 1=1            "
                     ++ 
                     (
                     if oSaveAutoIndexes opts
@@ -629,49 +612,43 @@ retrieveTablesDDL opts = do
                     "select column_name         \n\
                     \     , column_position     \n\
                     \     , descend             \n\
-                    \  from sys.all_ind_columns \n\
-                    \ where index_owner = ?     \n\
-                    \   and index_name = ?      \n\
+                    \  from user_ind_columns    \n\
+                    \ where index_name = ?      \n\
                     \order by column_position   ") $ \qryIndexColumns1 -> do
   withPreparedStatement
     (prepareQuery . sql $
                     "select column_name         \n\
                     \     , column_position     \n\
                     \     , '' as descend       \n\
-                    \  from sys.all_ind_columns \n\
-                    \ where index_owner = ?     \n\
-                    \   and index_name = ?      \n\
+                    \  from user_ind_columns    \n\
+                    \ where index_name = ?      \n\
                     \order by column_position   ") $ \qryIndexColumns2 -> do
   withPreparedStatement
     (prepareQuery . sql $
                     "select column_position         \n\
                     \     , column_expression       \n\
-                    \  from sys.all_ind_expressions \n\
-                    \ where index_owner = ?         \n\
-                    \   and index_name = ?          ") $ \qryIndexColumnExpressions -> do
+                    \  from user_ind_expressions    \n\
+                    \ where index_name = ?          ") $ \qryIndexColumnExpressions -> do
   withPreparedStatement
     (prepareQuery . sql $
                     "select partitioning_type        \n\
                     \     , subpartitioning_type     \n\
-                    \  from sys.all_part_tables      \n\
-                    \ where owner = ?                \n\
-                    \   and table_name = ?           ") $ \qryPartTables -> do
+                    \  from user_part_tables         \n\
+                    \ where table_name = ?           ") $ \qryPartTables -> do
   withPreparedStatement
     (prepareQuery . sql $
                     "select column_name              \n\
-                    \  from sys.all_part_key_columns \n\
-                    \ where owner = ?                \n\
-                    \   and name = ?                 \n\
+                    \  from user_part_key_columns    \n\
+                    \ where name = ?                 \n\
                     \order by column_position        ") $ \qryPartKeyColumns -> do
   withPreparedStatement
     (prepareQuery . sql $
                     "select column_name                 \n\
-                    \  from sys.all_subpart_key_columns \n\
-                    \ where owner = ?                   \n\
-                    \   and name = ?                    \n\
+                    \  from user_subpart_key_columns    \n\
+                    \ where name = ?                    \n\
                     \order by column_position           ") $ \qrySubPartKeyColumns -> do
   let
-    stm  = sqlbind
+    stm  = sql
            (
             "select a.table_name                 \n\
             \     , b.comments                   \n\
@@ -680,18 +657,15 @@ retrieveTablesDDL opts = do
             \     , a.row_movement               \n\
             \     , a.cache                      \n\
             \     , a.iot_type                   \n\
-            \  from sys.all_tables a,            \n\
-            \       sys.all_tab_comments b       \n\
-            \ where a.owner = ?                  \n\
-            \   and a.owner = b.owner(+)         \n\
-            \   and a.table_name=b.table_name(+) \n"
+            \  from user_tables a,               \n\
+            \       user_tab_comments b          \n\
+            \ where a.table_name=b.table_name(+) \n"
             ++
             case what2Retrieve of
               JustList lst ->
                 printf "   and a.table_name in (%s) \n" $ getUnionAll lst
               _ -> ""
            )
-           [bindP schema]
    
     iter (a1::String) (a2::Maybe String) (a3::String) (a4::Maybe String) (a5::String) (a6::String) (a7::Maybe String) accum = saveOneFile a1 a2 a3 a4 a5 a6 a7 >> result' accum
 
@@ -795,7 +769,7 @@ retrieveTablesDDL opts = do
             iter (a1::String) (a2::String) (a3::Integer) (a4::Maybe Integer) (a5::Maybe Integer) (a6::String) (a7::Maybe String) accum = result' ((a1,a2,a3,a4,a5,a6,a7):accum)
       
 
-          columns_r <- withBoundStatement qryColumnDecl [bindP schema, bindP table_name] $ \stm ->
+          columns_r <- withBoundStatement qryColumnDecl [bindP table_name] $ \stm ->
                          reverse `liftM` doQuery stm iter []
 
           let
@@ -820,7 +794,7 @@ retrieveTablesDDL opts = do
               iter (a1::String) (a2::Maybe String) accum = result' ((a1,a2):accum)
    
           columns_comments_accum <-
-            withBoundStatement qryColumnComments [bindP schema, bindP table_name] $ \stm ->
+            withBoundStatement qryColumnComments [bindP table_name] $ \stm ->
               reverse `liftM` doQuery stm iter []
 
           let columns_order_m = Map.fromList $ zip (map ON columns_order) [1..]
@@ -885,7 +859,7 @@ retrieveTablesDDL opts = do
             iter (a1::String) accum = result' (a1:accum)
 
           r <- 
-            withBoundStatement qryConstraintColumns1 [bindP schema, bindP table_name, bindP constraint_name] $ \stm ->
+            withBoundStatement qryConstraintColumns1 [bindP table_name, bindP constraint_name] $ \stm ->
               reverse `liftM` doQuery stm iter []
 
           let
@@ -909,7 +883,7 @@ retrieveTablesDDL opts = do
                 iter (a1::String) (a2::String) accum = result' ((a1,a2):accum)
 
               r <-
-                withBoundStatement qryConstraintColumns2 [bindP $ fromJust r_owner, bindP $ fromJust r_constraint_name] $ \stm ->
+                withBoundStatement qryConstraintColumns2 [bindP $ fromJust r_constraint_name] $ \stm ->
                   reverse `liftM` doQuery stm iter []
 
               let
@@ -973,7 +947,7 @@ retrieveTablesDDL opts = do
           let
             iter a1 a2 a3 a4 a5 a6 a7 a8 a9 accum = result' $ OraTableConstraint a1 a2 a3 a4 a5 a6 a7 a8 a9 : accum
     
-          withBoundStatement qryConstraintDecl [bindP schema, bindP table_name] $ \stm ->
+          withBoundStatement qryConstraintDecl [bindP table_name] $ \stm ->
             reverse `liftM` doQuery stm iter []
 
     -- Возвращает список деклараций констрэйнтов
@@ -988,7 +962,7 @@ retrieveTablesDDL opts = do
         iter (a1::String) (a2::String) (a3::String) (a4::String) accum = result' ((a1,a2,a3,a4):accum)
 
       r <-
-          withBoundStatement qryIndexes [bindP schema, bindP table_name] $ \stm ->
+          withBoundStatement qryIndexes [bindP table_name] $ \stm ->
             (reverse .
              -- если это индекс для констрэйнта, то пропускаем его
              filter (\(index_name,_,_,_) -> not $ M.member index_name constraints))
@@ -1025,9 +999,9 @@ retrieveTablesDDL opts = do
           column_index_expressions_map <- getIndexColumnExpressions
                
           r <- reverse `liftM`
-               catchDB (withBoundStatement qryIndexColumns1 [bindP schema, bindP index_name] $ \stm -> doQuery stm iter [])
+               catchDB (withBoundStatement qryIndexColumns1 [bindP index_name] $ \stm -> doQuery stm iter [])
                        (\_ ->
-                          withBoundStatement qryIndexColumns2 [bindP schema, bindP index_name] $ \stm -> doQuery stm iter [])
+                          withBoundStatement qryIndexColumns2 [bindP index_name] $ \stm -> doQuery stm iter [])
 
           return $ map (getDeclColumnIndex column_index_expressions_map) r
 
@@ -1039,7 +1013,7 @@ retrieveTablesDDL opts = do
                 let
                   iter (cp::Integer) (ce::String) accum = result' $ M.insert cp ce accum
 
-                withBoundStatement qryIndexColumnExpressions [bindP schema, bindP index_name] $ \stm ->
+                withBoundStatement qryIndexColumnExpressions [bindP index_name] $ \stm ->
                   doQuery stm iter M.empty
 
               -- Возвращает декларацию колонки индекса
@@ -1053,7 +1027,7 @@ retrieveTablesDDL opts = do
         iter (partitioning_type :: String) (subpartitioning_type :: String) accum =
           result' $ if True then Just (partitioning_type, subpartitioning_type) else accum
 
-      r <- withBoundStatement qryPartTables [bindP schema, bindP table_name] $ \stm ->
+      r <- withBoundStatement qryPartTables [bindP table_name] $ \stm ->
              doQuery stm iter Nothing
 
       case r of
@@ -1079,7 +1053,7 @@ retrieveTablesDDL opts = do
             let
               iter (column_name :: String) accum = result' $ column_name : accum
 
-            r <- withBoundStatement qryPartKeyColumns [bindP schema, bindP table_name] $ \stm ->
+            r <- withBoundStatement qryPartKeyColumns [bindP table_name] $ \stm ->
                  (reverse . map getSafeName) `fmap` doQuery stm iter []
             
             return $ case r of
@@ -1090,7 +1064,7 @@ retrieveTablesDDL opts = do
             let
               iter (column_name :: String) accum = result' $ column_name : accum
 
-            r <- withBoundStatement qrySubPartKeyColumns [bindP schema, bindP table_name] $ \stm ->
+            r <- withBoundStatement qrySubPartKeyColumns [bindP table_name] $ \stm ->
                  (reverse . map getSafeName) `fmap` doQuery stm iter []
             
             return $ case r of
