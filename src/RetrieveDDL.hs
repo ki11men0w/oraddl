@@ -586,7 +586,7 @@ retrieveTablesDDL opts = do
                     \       deferred                                                    \n\
                     \  from user_constraints                                            \n\
                     \ where table_name = ?                                              \n\
-                    \order by decode(constraint_type, 'P',1, 'R',2, 'U',3, 'C',4, 100), \n\
+                    \order by decode(constraint_type, 'P',1, 'U',2, 'R',3, 'C',4, 100), \n\
                     \         constraint_name") $ \qryConstraintDecl -> do
   withPreparedStatement
     (prepareQuery . sql $
