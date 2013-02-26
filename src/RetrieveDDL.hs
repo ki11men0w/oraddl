@@ -6,7 +6,7 @@ module RetrieveDDL where
 import System.IO
 import System.FilePath ((</>), addExtension, isValid)
 import Data.Maybe (fromJust, isNothing, isJust, mapMaybe, fromMaybe)
-import Data.List (dropWhileEnd, intercalate, isPrefixOf, sortBy)
+import Data.List (dropWhileEnd, intercalate, isPrefixOf, sortBy, isInfixOf)
 import Data.Char (toUpper, toLower, ord)
 
 import Text.Printf (printf)
@@ -594,6 +594,7 @@ retrieveTablesDDL opts = do
                     \     , uniqueness    \n\
                     \     , table_owner   \n\
                     \     , partitioned   \n\
+                    \     , index_type    \n\
                     \from user_indexes    \n\
                     \where 1=1            "
                     ++ 
@@ -959,23 +960,27 @@ retrieveTablesDDL opts = do
     -- Снимаем индексы
     getDeclIndexes schema table_name constraints = do
       let
-        iter (a1::String) (a2::String) (a3::String) (a4::String) accum = result' ((a1,a2,a3,a4):accum)
+        iter (a1::String) (a2::String) (a3::String) (a4::String) (a5::String) accum = result' ((a1,a2,a3,a4,a5):accum)
 
       r <-
           withBoundStatement qryIndexes [bindP table_name] $ \stm ->
             (reverse .
              -- если это индекс для констрэйнта, то пропускаем его
-             filter (\(index_name,_,_,_) -> not $ M.member index_name constraints))
+             filter (\(index_name,_,_,_,_) -> not $ M.member index_name constraints))
             `liftM`
             doQuery stm iter []
 
-      indexesDecl <- forM r $ \(index_name, uniqueness, table_owner, partitioned) -> do
+      indexesDecl <- forM r $ \(index_name, uniqueness, table_owner, partitioned, index_type) -> do
 
         index_columns <- getDeclIndexColumns schema index_name
         let
           headerDecl = "create"
                        ++
-                       (if uniqueness == "UNIQUE" then " unique" else "")
+                       case () of
+                          _
+                            | uniqueness == "UNIQUE" -> " unique"
+                            | "BITMAP" `isInfixOf` index_type -> " bitmap"
+                            | otherwise -> ""
                        ++
                        " index " ++ getSafeName index_name
                        ++
