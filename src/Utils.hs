@@ -13,7 +13,6 @@ where
 import System.IO
 import Text.Parsec
 import Text.Parsec.String
-import Control.Monad
 import Data.List
 import Data.Char (ord, toUpper, toLower)
 
@@ -25,6 +24,7 @@ isSpace :: Char -> Bool
 isSpace c =
   ord c <= ord ' '
 
+strip :: String -> String
 strip = dropWhile isSpace . dropWhileEnd isSpace
 
 parseMatch txt pars =

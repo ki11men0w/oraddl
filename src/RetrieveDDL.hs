@@ -5,7 +5,7 @@ module RetrieveDDL where
 
 import System.IO
 import System.FilePath ((</>), addExtension, isValid)
-import Data.Maybe (fromJust, isNothing, isJust, mapMaybe, fromMaybe)
+import Data.Maybe (fromJust, isJust, mapMaybe, fromMaybe)
 import Data.List (dropWhileEnd, intercalate, isPrefixOf, sortBy, isInfixOf)
 import Data.Char (toUpper, toLower, ord)
 
@@ -15,7 +15,6 @@ import Control.Monad.Trans (liftIO)
 import Database.Oracle.Enumerator
 import Data.Typeable (Typeable)
 
-import Data.Map (Map)
 import qualified Data.Map as Map
 
 import Text.Parsec
@@ -67,7 +66,7 @@ getDefaultSchema = do
     iter (a::String) accum = result' $ if True then a else accum
   doQuery (sql "select user from dual") iter []
   
-getSchema schema = getDefaultSchema
+getSchema _schema = getDefaultSchema
   -- case schema of
   --   Just s -> return s
   --   _      -> getDefaultSchema
@@ -117,7 +116,7 @@ getUnionAll lst =
   case lst of
     [] -> "select 'x' from dual where 1 = 2"
     [x] -> select x
-    x1:xs@(x2:_) -> select x1 ++ " union all " ++ getUnionAll xs
+    x1:xs@(_:_) -> select x1 ++ " union all " ++ getUnionAll xs
   where
     select = printf "select '%s' from dual"
 
@@ -184,7 +183,6 @@ getObjectList opts f =
 
 retrieveViewsDDL opts = do
   let
-    schema = fromJust $ oSchema opts
     what2Retrieve = getObjectList opts oViews
 
   withPreparedStatement 
@@ -194,7 +192,7 @@ retrieveViewsDDL opts = do
                     \ where table_name = ?        \n\
                     \ order by column_name        \n") $ \stm_comments -> do
   let
-    iter (a::String) (b::String) (c::Maybe String) accum = saveOneFile (oOutputDir opts) schema (a,b,c) >> result' accum
+    iter (a::String) (b::String) (c::Maybe String) accum = saveOneFile (oOutputDir opts) (a,b,c) >> result' accum
     stm = sql
           (
            "select a.view_name, a.text, b.comments \n\
@@ -208,12 +206,12 @@ retrieveViewsDDL opts = do
              _ -> ""
           )
   
-    saveOneFile outputDir schema viewInfo@(view_name, _, _) = do
-      decl <- getViewDecl schema viewInfo
-      liftIO $ write2File (oOutputDir opts) view_name "vew" decl
+    saveOneFile outputDir viewInfo@(view_name, _, _) = do
+      decl <- getViewDecl viewInfo
+      liftIO $ write2File outputDir view_name "vew" decl
       return ()
       where
-        getViewDecl schema (view_name, text, comments) = do
+        getViewDecl (view_name, text, comments) = do
           let
             create :: String =
               printf "create or replace view %s\nas\n%s\n/\n" (getSafeName view_name) $ clearSqlSource text
@@ -238,11 +236,10 @@ retrieveViewsDDL opts = do
 
 retrieveSourcesDDL opts = do
   let
-    schema = fromJust $ oSchema opts
     what2Retrieve = getObjectList opts oSources
   
   let
-    iter (name::String) (type'::String) (text::String) accum@(dataFound::Bool, prevName::String, prevType'::String, collectedText::[String]) =
+    iter (name::String) (type'::String) (text::String) _accum@(_dataFound::Bool, prevName::String, prevType'::String, collectedText::[String]) =
             if name == prevName && type' == prevType'
             then result' (True, name, type', collectedText ++ [text])
             else
@@ -419,7 +416,7 @@ retrieveSynonymsDDL opts = do
     what2Retrieve = getObjectList opts oSynonyms
   
   let
-    iter (a::Bool) accum = result' $ True || accum
+    iter (_::Bool) accum = result' $ True || accum
     -- Определяем есть ли колонка DB_LINK
     sql' = "select 'True'                    \n\
            \  from all_tab_columns           \n\
@@ -452,7 +449,6 @@ retrieveSynonymsDDL opts = do
       saveOneFile (owner, synonym_name, table_owner, table_name, db_link) = do
         let
           safe_name = getSafeName synonym_name
-          isNameCaseSensitive = safe_name /= synonym_name
     
           text :: String = case table_owner of
             Nothing ->
@@ -471,7 +467,6 @@ retrieveSynonymsDDL opts = do
 
 retrieveSequencesDDL opts = do
   let
-    schema = fromJust $ oSchema opts
     what2Retrieve = getObjectList opts oSequences
   
   let
@@ -684,10 +679,10 @@ retrieveTablesDDL opts = do
     saveOneFile table_name comments temporary duration row_movement cache iot_type = do
 
       -- Соединяем все вместе и получаем декларацию всей таблицы
-      (columns_decl :: Maybe String, columns_order :: [String]) <- getDeclColumns schema table_name
-      partitions_decl <- getPartitionsDecl schema table_name
-      columns_comment_decl :: Maybe String <- getDeclColumnsComment schema table_name columns_order
-      constraints_list <- getConstraintsList schema table_name
+      (columns_decl :: Maybe String, columns_order :: [String]) <- getDeclColumns table_name
+      partitions_decl <- getPartitionsDecl table_name
+      columns_comment_decl :: Maybe String <- getDeclColumnsComment table_name columns_order
+      constraints_list <- getConstraintsList table_name
       let constraints = M.fromList $ map (\x -> (constraint_name x, ())) constraints_list
       inline_constraints_decl :: Maybe String <-
         getConstraintsDeclInline schema table_name (if isJust iot_type then onlyPrimaryKey else const False) constraints_list
@@ -744,7 +739,7 @@ retrieveTablesDDL opts = do
   
 
     -- Получение деклараций колонок таблицы
-    getDeclColumns schema table_name = do
+    getDeclColumns table_name = do
           let
             -- Получение декларации для колонки таблицы
             getColumnDecl (column_name, data_type, data_length, data_precision, data_scale, nullable, data_default) =
@@ -792,7 +787,7 @@ retrieveTablesDDL opts = do
 
 
     -- Обрабатываем комментарии для колонок
-    getDeclColumnsComment schema table_name columns_order = do
+    getDeclColumnsComment table_name columns_order = do
           let
               getColumnComment (column_name, comments) =
                 case comments of
@@ -808,8 +803,8 @@ retrieveTablesDDL opts = do
             withBoundStatement qryColumnComments [bindP table_name] $ \stm ->
               reverse `liftM` doQuery stm iter []
 
-          let columns_order_m = Map.fromList $ zip (map ON columns_order) [1..]
-          let numbered_comments = zip columns_comments_accum [1..]
+          let columns_order_m = Map.fromList $ zip (map ON columns_order) ([1..] :: [Int])
+          let numbered_comments = zip columns_comments_accum ([1..] :: [Int])
 
               
           let x = concatMap ("\n" ++) $ mapMaybe (getColumnComment . fst) $
@@ -954,7 +949,7 @@ retrieveTablesDDL opts = do
                         else Just . intercalate ",\n" . map ("  "++) $ decls
           return decls_str
 
-    getConstraintsList schema table_name = do
+    getConstraintsList table_name = do
           let
             iter a1 a2 a3 a4 a5 a6 a7 a8 a9 accum = result' $ OraTableConstraint a1 a2 a3 a4 a5 a6 a7 a8 a9 : accum
     
@@ -982,7 +977,7 @@ retrieveTablesDDL opts = do
 
       indexesDecl <- forM r $ \(index_name, uniqueness, table_owner, partitioned, index_type) -> do
 
-        index_columns <- getDeclIndexColumns schema index_name
+        index_columns <- getDeclIndexColumns index_name
         let
           headerDecl = "create"
                        ++
@@ -1007,7 +1002,7 @@ retrieveTablesDDL opts = do
        else return . Just $ intercalate "\n/\n\n" indexesDecl ++ "\n/\n"
 
       where
-        getDeclIndexColumns schema index_name = do
+        getDeclIndexColumns index_name = do
           let
             iter (a1::String) (a2::Integer) (a3::String) accum = result' ((a1,a2,a3):accum)
           
@@ -1037,7 +1032,7 @@ retrieveTablesDDL opts = do
                 ++
                 (if map toUpper descend == "DESC" then " desc" else "")
 
-    getPartitionsDecl schema table_name = do
+    getPartitionsDecl table_name = do
       let
         iter (partitioning_type :: String) (subpartitioning_type :: String) accum =
           result' $ if True then Just (partitioning_type, subpartitioning_type) else accum

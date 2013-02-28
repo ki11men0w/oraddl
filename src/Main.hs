@@ -3,11 +3,10 @@
 
 module Main where
 
-import System.IO
 import System.Environment
 import System.Console.CmdArgs as CMD
 import Control.Monad
-import Data.Maybe (isNothing, isJust, fromJust, fromMaybe)
+import Data.Maybe (isNothing, fromJust, fromMaybe)
 import Data.List
 import Utils (isSpace)
 import qualified Data.Map as M
