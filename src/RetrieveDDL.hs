@@ -660,7 +660,10 @@ retrieveTablesDDL opts = do
             \     , a.iot_type                   \n\
             \  from user_tables a,               \n\
             \       user_tab_comments b          \n\
-            \ where a.table_name=b.table_name(+) \n"
+            \ where a.table_name=b.table_name(+) \n\
+            \   and (a.iot_type is null          \n\
+            \        or                          \n\
+            \        a.iot_type <> 'IOT_OVERFLOW') "
             ++
             case what2Retrieve of
               JustList lst ->
