@@ -159,7 +159,7 @@ translateOptions flags = do
                  ]
         _ -> return []
       
-      let x = uniqify $ ox ++ fromMaybe [] (splitByComma `fmap` list flags)
+      let x = uniqify $ ox ++ maybe [] splitByComma (list flags)
       return $ if null x then Nothing else Just x
 
 

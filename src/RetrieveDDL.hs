@@ -5,7 +5,7 @@ module RetrieveDDL where
 
 import System.IO
 import System.FilePath ((</>), addExtension, isValid)
-import Data.Maybe (fromJust, isJust, mapMaybe, fromMaybe)
+import Data.Maybe (fromJust, isJust, mapMaybe, fromMaybe, catMaybes)
 import Data.List (dropWhileEnd, intercalate, isPrefixOf, sortBy, isInfixOf)
 import Data.Char (toUpper, toLower, ord)
 
@@ -703,10 +703,10 @@ retrieveTablesDDL opts = do
           printf "\
                   \create %stable %s" table_spec (getSafeName table_name)
           ++
-          (if (isJust columns_decl) || (isJust inline_constraints_decl) then
+          (if isJust columns_decl || isJust inline_constraints_decl then
              "\n (\n"
              ++
-             (intercalate ",\n" . map fromJust . filter isJust $ [columns_decl, inline_constraints_decl])
+             (intercalate ",\n" . catMaybes $ [columns_decl, inline_constraints_decl])
              ++
              "\n )"
            else "")
@@ -783,7 +783,7 @@ retrieveTablesDDL opts = do
             decl = if null columns_r then Nothing
                    else Just $ intercalate ",\n" $ map getColumnDecl columns_r
 
-          return $ (decl, column_order)
+          return (decl, column_order)
 
 
     -- Обрабатываем комментарии для колонок
@@ -939,7 +939,7 @@ retrieveTablesDDL opts = do
           decls <- getConstraintsDeclList schema table_name filter_func constraints
           let
             decls_str = if null decls then Nothing
-                        else Just . intercalate "\n" . map (++"\n/\n") . map ((printf "alter table %s\n  add " (getSafeName table_name)) ++) $ decls
+                        else Just . intercalate "\n" . map ((++"\n/\n") . (printf "alter table %s\n  add " (getSafeName table_name) ++)) $ decls
           return decls_str
 
     getConstraintsDeclInline schema table_name filter_func (constraints::[OraTableConstraint]) = do
@@ -958,9 +958,9 @@ retrieveTablesDDL opts = do
 
     -- Возвращает список деклараций констрэйнтов
     getConstraintsDeclList schema table_name filter_func (constraints::[OraTableConstraint]) =
-          (map fromJust . filter isJust)
+          catMaybes
           `liftM`
-          (mapM (getConstraintDecl schema table_name) (filter filter_func constraints))
+          mapM (getConstraintDecl schema table_name) (filter filter_func constraints)
 
     -- Снимаем индексы
     getDeclIndexes schema table_name constraints = do
@@ -1082,7 +1082,7 @@ retrieveTablesDDL opts = do
               _  -> Just $ "(" ++ intercalate "," r ++ ")"
 
 
-    getIOTDecl iot_type = do
+    getIOTDecl iot_type =
       return $ case iot_type of
         Just "IOT" -> Just "organization index"
         Just "IOT_OVERFLOW" -> Just "organization index"
