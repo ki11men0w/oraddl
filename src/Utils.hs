@@ -6,7 +6,8 @@ module Utils
    CharParser,
    isSpace,
    strip,
-   parseMatch
+   parseMatch,
+   safeValueByIndex
   )
 where
 
@@ -129,3 +130,11 @@ stringCSI pattern =
 
 printWarning :: String -> IO ()
 printWarning = hPutStrLn stderr
+
+safeValueByIndex :: [a] -> Int -> Maybe a
+safeValueByIndex [] _ = Nothing
+safeValueByIndex xs i
+  | i < 0 = Nothing
+  | succ i > length xs = Nothing
+  | otherwise = Just $ xs !! i
+                 
