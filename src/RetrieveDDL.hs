@@ -345,7 +345,7 @@ retrieveTriggersDDL opts = do
                    ++
                    case what2Retrieve of
                      JustList lst ->
-                       printf "   and trigger_name in (%s) \n" $ getUnionAll lst
+                       printf " where trigger_name in (%s) \n" $ getUnionAll lst
                      _ -> ""
                   )
 
@@ -437,7 +437,7 @@ retrieveSynonymsDDL opts = do
             ++
             case what2Retrieve of
               JustList lst ->
-                printf "   and synonym_name in (%s) \n" $ getUnionAll lst
+                printf " where synonym_name in (%s) \n" $ getUnionAll lst
               _ -> ""
 
     stm = sql $ printf sql' $ if dbLinkColumnExists then "db_link" else "null"
@@ -488,7 +488,7 @@ retrieveSequencesDDL opts = do
             ++
             case what2Retrieve of
               JustList lst ->
-                printf "   and sequence_name in (%s) \n" $ getUnionAll lst
+                printf " where sequence_name in (%s) \n" $ getUnionAll lst
               _ -> ""
            )
 
