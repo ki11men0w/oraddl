@@ -3,7 +3,6 @@ version: 2.0.3
 cabal-version: >=1.2
 build-type: Simple
 license: PublicDomain
-license-file: ""
 maintainer: Maksim Golubev
 stability: beta
 bug-reports: maksim.golubev72@gmail.com
