@@ -22,3 +22,4 @@ executable oraddl
     main-is: Main.hs
     buildable: True
     hs-source-dirs: src
+    ghc-options: -O3
