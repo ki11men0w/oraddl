@@ -45,38 +45,39 @@ getOpts = do
             &= help "Connect string",
           schema =
             def
-            &= help "Schema for which objects you get DDL's",
+            &= typ "NAME"
+            &= help "Schema for which objects you get DDL's. If not specified then user schema will be used",
           tables =
             def
             &= typ "NAME,NAME,..."
             &= opt ""
-            &= help "Names of tables to retrieve. Names are case sensitive",
+            &= help "Names of tables to retrieve. Names are case sensitive. If you specify no names then all the tables will be retrieved",
           views =
             def
             &= explicit &= name "views"
             &= typ "NAME,NAME,..."
             &= opt ""
-            &= help "Names of views to retrieve. Names are case sensitive",
+            &= help "Names of views to retrieve. Names are case sensitive. If you specify no names then all the views will be retrieved",
           sources =
             def
             &= typ "NAME,NAME,..."
             &= opt ""
-            &= help "Names of sources (packages, functions, procedures, java, types) to retrieve. Names are case sensitive",
+            &= help "Names of sources (packages, functions, procedures, java, types) to retrieve. Names are case sensitive. If you specify no names then all the sources will be retrieved",
           triggers =
             def
             &= typ "NAME,NAME,..."
             &= opt ""
-            &= help "Names of triggers to retrieve. Names are case sensitive",
+            &= help "Names of triggers to retrieve. Names are case sensitive. If you specify no names then all the triggers will be retrieved",
           synonyms =
             def
             &= typ "NAME,NAME,..."
             &= opt ""
-            &= help "Names of synonyms to retrieve. Names are case sensitive",
+            &= help "Names of synonyms to retrieve. Names are case sensitive. If you specify no names then all the synonyms will be retrieved",
           sequences =
             def
             &= typ "NAME,NAME,..."
             &= opt ""
-            &= help "Names of sequences to retrieve. Names are case sensitive",
+            &= help "Names of sequences to retrieve. Names are case sensitive. If you specify no names then all the sequences will be retrieved",
           list =
             def
             &= typ "NAME,NAME,..."
@@ -84,7 +85,7 @@ getOpts = do
           listf =
             def
             &= typ "FILE"
-            &= help "File with list of intresting objects. Names are case sensitive",
+            &= help "File with list of intresting objects (one object per line). Names are case sensitive",
           directory =
             "."
             &= explicit &= name "dir"
