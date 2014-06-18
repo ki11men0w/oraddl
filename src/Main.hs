@@ -19,7 +19,6 @@ programVersion = "2.0.6 (haskell)"
 data Flags = Flags 
              {
                conn :: Maybe String,
-               schema :: Maybe String,
                tables :: Maybe String,
                views :: Maybe String,
                sources :: Maybe String,
@@ -43,10 +42,6 @@ getOpts = do
             &= explicit &= name "connect"
             &= typ "user/password@db"
             &= help "Connect string",
-          schema =
-            def
-            &= typ "NAME"
-            &= help "Schema for which objects you get DDL's. If not specified then user schema will be used",
           tables =
             def
             &= typ "NAME,NAME,..."
@@ -132,7 +127,7 @@ translateOptions flags = do
    Options
    {
     oConn = fromJust $ conn flags,
-    oSchema = schema flags,
+    oSchema = Nothing,
     oObjList = obj_list,
     oByTypeLists = ByTypeLists {
                      oTables    = (uniqify . splitByComma) `fmap` tables flags,
