@@ -1,7 +1,8 @@
 module OracleUtils 
   (
    decodeConnectString,
-   encodeConnectString
+   encodeConnectString,
+   sympleOraNameSymbols
   ) where
 
 import Data.List
@@ -22,3 +23,6 @@ decodeConnectString s =
 encodeConnectString :: User -> Password -> DatabaseName -> ConnectString
 encodeConnectString user password dbname =
   user ++ "/" ++ password ++ "@" ++ dbname
+
+sympleOraNameSymbols :: String
+sympleOraNameSymbols = "1234567890QWERTYUIOPASDFGHJKLZXCVBNM_#$"

@@ -86,10 +86,10 @@ getSafeName' simpleSymbols ora_name =
       else ora_name
           
 getSafeName :: String -> String
-getSafeName = getSafeName' "1234567890QWERTYUIOPASDFGHJKLZXCVBNM_#$"
+getSafeName = getSafeName' sympleOraNameSymbols
 
 getSafeName2 :: String -> String
-getSafeName2 = getSafeName' "1234567890QWERTYUIOPASDFGHJKLZXCVBNM_#$."
+getSafeName2 = getSafeName' $ '.':sympleOraNameSymbols
 
 
 newtype OracleName = ON String
@@ -846,9 +846,11 @@ retrieveTablesDDL opts = do
                    -- if (map toLower sc) =~ "^[ \n\r\t\0]*[^ \n\r\t\0]+[ \n\r\t\0]+is[ \n\r\t\0]+not[ \n\r\t\0]+null[ \n\r\t\0]*$" :: Bool
                    if parseMatch
                         (map toLower sc)
-                        (manyTill anyChar $
-                                  try (do let spaces1 = skipMany1 space
-                                          space >> string "is" >> spaces1 >> string "not" >> spaces1 >> string "null" >> spaces >> eof))
+                        (do let spaces1 = skipMany1 space
+                                skipFieldName = (char '"' >> skipMany1 (noneOf "\"") >> char '"' >> return ()) -- имя поля взятое в кавычки, например: "Name"
+                                                <|>
+                                                (skipMany1 $ oneOf $ map toLower sympleOraNameSymbols) -- имя поля без кавычек (может содержать только "красивые" символы)
+                            skipFieldName >> spaces1 >> string "is" >> spaces1 >> string "not" >> spaces1 >> string "null" >> spaces >> eof)
                    then return Nothing -- это просто условие not null
                    else getConstraintDecl' $ "check (" ++ sc ++ ")"
         "V" -> return Nothing
