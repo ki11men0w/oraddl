@@ -11,10 +11,15 @@ import Data.List
 import Utils (isSpace)
 import qualified Data.Map as M
 
+import Paths_oraddl (version)
+import Data.Version (showVersion)
+
 --import OracleUtils
 import RetrieveDDL
 
-programVersion = "2.0.7 (haskell)"
+programVersion :: String
+programVersion =
+  showVersion version ++ " (haskell)"
 
 data Flags = Flags 
              {
