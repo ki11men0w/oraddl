@@ -22,3 +22,6 @@ executable oraddl
     buildable: True
     hs-source-dirs: src
     ghc-options: -O3
+    other-modules: OracleUtils,
+                   RetrieveDDL,
+                   Utils
