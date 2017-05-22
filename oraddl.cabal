@@ -16,7 +16,7 @@ data-dir: ""
 executable oraddl
     build-depends: base >=4.3.1.0,
                    cmdargs >=0.9.3, temporary >=1.1.2.3,
-                   Takusen >= 0.8.7,
+                   Takusen >= 0.8.8,
                    mtl, filepath, containers, parsec >= 3
     main-is: Main.hs
     buildable: True
