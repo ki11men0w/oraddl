@@ -3,16 +3,18 @@ resolver: lts-8.15
 packages:
 - '.'
 - location:
-   git: https://github.com/ki11men0w/takusen.git
-   commit: 2ae4aa6e0540eee155df15267c7ddc4e6ebb57e9
-   extra-dep: true
+    git: https://github.com/ki11men0w/takusen.git
+    commit: ce874dc7b2fed1296f390f3b4c72c2bb57a91e3a
+  extra-dep: true
 
 # Dependency packages to be pulled from upstream that are not in the resolver
 # (e.g., acme-missiles-0.3)
 extra-deps: []
 
 # Override default flag values for local packages and extra-deps
-flags: {}
+flags:
+  Takusen:
+    oracle: true
 
 # Extra package databases containing global packages
 extra-package-dbs: []
