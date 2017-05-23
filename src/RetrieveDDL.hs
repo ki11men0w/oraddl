@@ -663,19 +663,26 @@ retrieveTablesDDL opts = do
   let
     stm  = sql
            (
-            "select a.table_name                 \n\
-            \     , b.comments                   \n\
-            \     , a.temporary                  \n\
-            \     , a.duration                   \n\
-            \     , a.row_movement               \n\
-            \     , a.cache                      \n\
-            \     , a.iot_type                   \n\
-            \  from user_tables a,               \n\
-            \       user_tab_comments b          \n\
-            \ where a.table_name=b.table_name(+) \n\
-            \   and (a.iot_type is null          \n\
-            \        or                          \n\
-            \        a.iot_type <> 'IOT_OVERFLOW') "
+            "select a.table_name                               \n\
+            \     , b.comments                                 \n\
+            \     , a.temporary                                \n\
+            \     , a.duration                                 \n\
+            \     , a.row_movement                             \n\
+            \     , a.cache                                    \n\
+            \     , a.iot_type                                 \n\
+            \  from user_tables a,                             \n\
+            \       user_tab_comments b                        \n\
+            \ where a.table_name=b.table_name(+)               \n\
+            \   and (a.iot_type is null                        \n\
+            \        or                                        \n\
+            \        a.iot_type <> 'IOT_OVERFLOW')             \n\
+            \   and not exists (                               \n\
+            \              select 1                            \n\
+            \                from user_mviews v                \n\
+            \               where a.table_name = v.mview_name  \n\
+            \                 and v.owner = user               \n\
+            \                  )                               \n\
+            \"
             ++
             case what2Retrieve of
               JustList lst ->
