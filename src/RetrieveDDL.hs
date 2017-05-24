@@ -256,15 +256,16 @@ retrieveMViewsDDL opts = do
     iter (a::String) (b::Maybe String) (c::String) (d::Maybe String) (e::Maybe String) (f::Maybe String) accum = saveOneFile (oOutputDir opts) (a,b,c,d,e,f) >> result' accum
     stm = sql
           (
-           "select a.mview_name                   \n\
-           \     , b.comments                     \n\
-           \     , a.query                        \n\
-           \     , a.rewrite_enabled              \n\
-           \     , a.refresh_mode                 \n\
-           \     , a.refresh_method               \n\
-           \  from user_mviews a,                 \n\
-           \       user_mview_comments b          \n\
-           \ where a.mview_name = b.mview_name(+) \n\
+           "select a.mview_name                                                            \n\
+           \     , b.comments                                                              \n\
+           \     , a.query                                                                 \n\
+           \     , a.rewrite_enabled                                                       \n\
+           \     , a.refresh_mode                                                          \n\
+           \     , a.refresh_method                                                        \n\
+           \  from user_mviews a                                                           \n\
+           \  left join user_mview_comments b                                              \n\
+           \         on a.mview_name = b.mview_name                                        \n\
+           \        and b.comments not like 'snapshot table for snapshot %.'||a.mview_name \n\
            \"
            ++
            case what2Retrieve of
