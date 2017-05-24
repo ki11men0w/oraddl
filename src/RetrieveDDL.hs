@@ -872,7 +872,11 @@ retrieveTablesDDL opts = do
             case what2Retrieve of
               JustList lst ->
                 printf "   and a.table_name in (%s) \n" $ getUnionAll lst
-              _ -> ""
+              _ -> (-- automatically created by oracle tables related to materialized views
+                    "   and a.table_name not like 'MLOG$_%'\n\
+                    \   and a.table_name not like 'RUPD$_%'\n\
+                    \"
+                   )
            )
    
     iter (a1::String) (a2::Maybe String) (a3::String) (a4::Maybe String) (a5::String) (a6::String) (a7::Maybe String) accum = saveOneFile a1 a2 a3 a4 a5 a6 a7 >> result' accum
