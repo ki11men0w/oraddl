@@ -37,6 +37,7 @@ import Utils ( clearSqlSource,
 data ByTypeLists = ByTypeLists {
     oTables :: Maybe [String],
     oViews :: Maybe [String],
+    oMViews :: Maybe [String],
     oSources :: Maybe [String],
     oSequences :: Maybe [String],
     oSynonyms :: Maybe [String],
@@ -47,6 +48,7 @@ isAtLeastOneTypeSpecified :: ByTypeLists -> Bool
 isAtLeastOneTypeSpecified x =
   (isJust . oTables) x || 
   (isJust . oViews) x || 
+  (isJust . oMViews) x ||
   (isJust . oSources) x || 
   (isJust . oSequences) x || 
   (isJust . oSynonyms) x || 
@@ -146,6 +148,7 @@ retreiveDDL opts = do
     retrieveTriggersDDL opts'
     retrieveSynonymsDDL opts'
     retrieveSequencesDDL opts'
+    retrieveMViewsDDL opts'
     retrieveTablesDDL opts'
 
 normalizeFileName :: FilePath -> FilePath
@@ -229,6 +232,88 @@ retrieveViewsDDL opts = do
           let column_comments :: String = concat $ flip map r $ \(column_name, comments) ->
                 printf "\ncomment on column %s.%s\n  is %s\n/\n" (getSafeName view_name) (getSafeName column_name) (sqlStringLiteral . clearSqlSource $ fromJust comments) :: String
         
+          return $ create ++ comment ++ column_comments
+
+  case what2Retrieve of
+    None -> return ()
+    _    -> doQuery stm iter ()
+
+
+retrieveMViewsDDL opts = do
+  let
+    what2Retrieve = getObjectList opts oMViews
+
+  withPreparedStatement
+    (prepareQuery . sql $
+                    "select column_name, comments \n\
+                    \  from user_col_comments     \n\
+                    \ where table_name = ?        \n\
+                    \ order by column_name        \n") $ \stm_comments -> do
+  let
+    iter (a::String) (b::Maybe String) (c::String) (d::Maybe String) (e::Maybe String) (f::Maybe String) accum = saveOneFile (oOutputDir opts) (a,b,c,d,e,f) >> result' accum
+    stm = sql
+          (
+           "select a.mview_name                   \n\
+           \     , b.comments                     \n\
+           \     , a.query                        \n\
+           \     , a.rewrite_enabled              \n\
+           \     , a.refresh_mode                 \n\
+           \     , a.refresh_method               \n\
+           \  from user_mviews a,                 \n\
+           \       user_mview_comments b          \n\
+           \ where a.mview_name = b.mview_name(+) \n\
+           \"
+           ++
+           case what2Retrieve of
+             JustList lst ->
+               printf "   and a.mview_name in (%s) \n" $ getUnionAll lst
+             _ -> ""
+          )
+
+    saveOneFile outputDir viewInfo@(view_name, _, _, _, _, _) = do
+      decl <- getViewDecl viewInfo
+      liftIO $ write2File outputDir view_name "mvew" decl
+      return ()
+      where
+        getViewDecl (view_name, comments, query, rewrite_enabled, refresh_mode, refresh_method) = do
+          let
+            need_refresh_stm :: Bool = isJust refresh_mode || isJust refresh_method
+            refresh_stm :: String =
+                           (if need_refresh_stm then "refresh" else "")
+                           ++
+                           (case refresh_method of
+                              Just rm -> " " ++ fmap toLower rm
+                              Nothing -> "")
+                           ++
+                           (case refresh_mode of
+                              Just rm -> " on " ++ (fmap toLower rm)
+                              Nothing -> "")
+                           ++
+                           (if need_refresh_stm then printf "\n" else "")
+                           ++
+                           (let positive_result = printf "enable query rewrite\n"
+                            in case rewrite_enabled of
+                              Just "Y" -> positive_result
+                              Just "y" -> positive_result
+                              _ -> ""
+                           )
+            create :: String =
+              printf "create or replace materialized view %s\n%sas\n%s\n/\n"
+                       (getSafeName view_name)
+                       refresh_stm
+                       (clearSqlSource query)
+            comment :: String =
+              case comments of
+                Just c  -> printf "\ncomment on materialized view %s\n  is %s\n/\n" (getSafeName view_name) $ sqlStringLiteral . clearSqlSource $ c
+                Nothing -> ""
+
+            iter (a::String) (b::Maybe String) accum = result' ((a,b):accum)
+
+          r <- withBoundStatement stm_comments [bindP view_name] $ \bstm ->
+                 (filter (\(_, x) -> isJust x) . reverse) `liftM` doQuery bstm iter []
+          let column_comments :: String = concat $ flip map r $ \(column_name, comments) ->
+                printf "\ncomment on column %s.%s\n  is %s\n/\n" (getSafeName view_name) (getSafeName column_name) (sqlStringLiteral . clearSqlSource $ fromJust comments) :: String
+
           return $ create ++ comment ++ column_comments
 
   case what2Retrieve of
