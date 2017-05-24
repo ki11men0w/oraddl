@@ -95,7 +95,7 @@ getOpts = do
           list =
             def
             &= typ "NAME,NAME,..."
-            &= help "Names of objects to retrieve. Names are case sensitive. Use this option instead of --tables, --views, etc. if the type of objects is unknown",
+            &= help "Names of objects of any type to retrieve. Names are case sensitive. Use this option instead of --tables, --views, etc. if the type of objects is unknown",
           listf =
             def
             &= typ "FILE"
