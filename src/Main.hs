@@ -30,6 +30,8 @@ data Flags = Flags
                triggers :: Maybe String,
                synonyms :: Maybe String,
                sequences :: Maybe String,
+               mviews :: Maybe String,
+               mviewlogs :: Maybe String,
                list :: Maybe String,
                listf :: Maybe FilePath,
                directory :: String,
@@ -78,6 +80,18 @@ getOpts = do
             &= typ "NAME,NAME,..."
             &= opt ""
             &= help "Names of sequences to retrieve. Names are case sensitive. If you specify no names then all the sequences will be retrieved",
+          mviews =
+            def
+            &= explicit &= name "mviews"
+            &= typ "NAME,NAME,..."
+            &= opt ""
+            &= help "Names of materialized views to retrieve. Names are case sensitive. If you specify no names then all the materialized views will be retrieved",
+          mviewlogs =
+            def
+            &= explicit &= name "mview-logs"
+            &= typ "NAME,NAME,..."
+            &= opt ""
+            &= help "Names of tables for witch to retrieve materialized view logs. Names are case sensitive. If you specify no names then all materialized view logs will be retrieved",
           list =
             def
             &= typ "NAME,NAME,..."
@@ -137,6 +151,8 @@ translateOptions flags = do
     oByTypeLists = ByTypeLists {
                      oTables    = (uniqify . splitByComma) `fmap` tables flags,
                      oViews     = (uniqify . splitByComma) `fmap` views flags,
+                     oMViews    = (uniqify . splitByComma) `fmap` mviews flags,
+                     oMViewLogs = (uniqify . splitByComma) `fmap` mviewlogs flags,
                      oSources   = (uniqify . splitByComma) `fmap` sources flags,
                      oSequences = (uniqify . splitByComma) `fmap` sequences flags,
                      oSynonyms  = (uniqify . splitByComma) `fmap` synonyms flags,
