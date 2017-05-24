@@ -38,6 +38,7 @@ data ByTypeLists = ByTypeLists {
     oTables :: Maybe [String],
     oViews :: Maybe [String],
     oMViews :: Maybe [String],
+    oMViewLogs :: Maybe [String],
     oSources :: Maybe [String],
     oSequences :: Maybe [String],
     oSynonyms :: Maybe [String],
@@ -49,6 +50,7 @@ isAtLeastOneTypeSpecified x =
   (isJust . oTables) x || 
   (isJust . oViews) x || 
   (isJust . oMViews) x ||
+  (isJust . oMViewLogs) x ||
   (isJust . oSources) x || 
   (isJust . oSequences) x || 
   (isJust . oSynonyms) x || 
@@ -149,6 +151,7 @@ retreiveDDL opts = do
     retrieveSynonymsDDL opts'
     retrieveSequencesDDL opts'
     retrieveMViewsDDL opts'
+    retrieveMViewLogsDDL opts'
     retrieveTablesDDL opts'
 
 normalizeFileName :: FilePath -> FilePath
@@ -315,6 +318,102 @@ retrieveMViewsDDL opts = do
                 printf "\ncomment on column %s.%s\n  is %s\n/\n" (getSafeName view_name) (getSafeName column_name) (sqlStringLiteral . clearSqlSource $ fromJust comments) :: String
 
           return $ create ++ comment ++ column_comments
+
+  case what2Retrieve of
+    None -> return ()
+    _    -> doQuery stm iter ()
+
+
+retrieveMViewLogsDDL opts = do
+  let
+    what2Retrieve = getObjectList opts oMViewLogs
+
+  withPreparedStatement
+    (prepareQuery . sql $
+                    "select a.column_name                 \n\
+                    \  from user_tab_columns a,           \n\
+                    \       user_tab_columns b            \n\
+                    \ where a.table_name = ?              \n\
+                    \   and b.table_name = ?              \n\
+                    \   and a.column_name = b.column_name \n\
+                    \order by a.column_id                 \n") $ \qryColumnDecl -> do
+  withPreparedStatement
+    (prepareQuery . sql $
+                    "select cc.column_name                         \n\
+                    \  from user_constraints c,                    \n\
+                    \       user_cons_columns cc                   \n\
+                    \ where c.table_name = ?                       \n\
+                    \   and c.table_name = cc.table_name           \n\
+                    \   and c.constraint_name = cc.constraint_name \n\
+                    \   and c.constraint_type = 'P'                \n\
+                    \") $ \qryPrimaryKeyFields -> do
+  let
+    iter (a::String) (b::String) (c::String) (d::String) (e::String) (f::String) (g::String) accum = saveOneFile (oOutputDir opts) (a,b,c,d,e,f,g) >> result' accum
+    stm = sql
+          (
+           "select a.master             \n\
+           \     , a.log_table          \n\
+           \     , a.rowids             \n\
+           \     , a.primary_key        \n\
+           \     , a.sequence           \n\
+           \     , a.object_id          \n\
+           \     , a.include_new_values \n\
+           \  from user_mview_logs a    \n\
+           \"
+           ++
+           case what2Retrieve of
+             JustList lst ->
+               printf "   and a.master in (%s) \n" $ getUnionAll lst
+             _ -> ""
+          )
+
+    saveOneFile outputDir mviewLogInfo@(master, _, _, _, _, _, _) = do
+      decl <- getMViewLogDecl mviewLogInfo
+      liftIO $ write2File outputDir master "mvlog" decl
+      return ()
+      where
+        getMViewLogDecl (master, log_table, rowids, primary_key, sequence, object_id, include_new_values) = do
+          let
+            check x = x == "YES"
+            iter (a1::String) accum = result' ((a1):accum)
+
+          primary_key_columns <- if check primary_key
+                                   then
+                                     withBoundStatement qryPrimaryKeyFields [bindP master] $ \stm ->
+                                       reverse `liftM` doQuery stm iter []
+                                   else
+                                     return []
+
+          with_columns_r <- withBoundStatement qryColumnDecl [bindP log_table, bindP master] $ \stm ->
+                            (reverse . (filter (`notElem` primary_key_columns))) `liftM` doQuery stm iter []
+
+          let
+            getWithPart value stm = case value of
+                                     "YES" -> Just stm
+                                     _ -> Nothing
+            with_columns :: String = if null with_columns_r
+                                       then ""
+                                       else printf " (%s)" $ intercalate ", " $ flip map with_columns_r $ \(column_name) -> (getSafeName column_name) :: String
+            with_parts :: [String] = catMaybes
+                                          [
+                                           getWithPart object_id "object id",
+                                           getWithPart primary_key "primary key",
+                                           getWithPart rowids "rowid",
+                                           getWithPart sequence "sequence"
+                                          ]
+
+            with_stm = if null with_parts
+                         then ""
+                         else "with " ++ (intercalate ", " with_parts) ++ with_columns
+            include_stm = if check include_new_values then "including new values" else ""
+
+            create :: String =
+              printf "create or replace materialized view log on %s\n%s\n/\n"
+                       (getSafeName master)
+                       (intercalate (printf "\n") (filter (not . null) [with_stm, include_stm]))
+
+
+          return create
 
   case what2Retrieve of
     None -> return ()
