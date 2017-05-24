@@ -276,7 +276,7 @@ retrieveMViewsDDL opts = do
 
     saveOneFile outputDir viewInfo@(view_name, _, _, _, _, _) = do
       decl <- getViewDecl viewInfo
-      liftIO $ write2File outputDir view_name "mvew" decl
+      liftIO $ write2File outputDir view_name "mview" decl
       return ()
       where
         getViewDecl (view_name, comments, query, rewrite_enabled, refresh_mode, refresh_method) = do
