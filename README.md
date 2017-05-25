@@ -1,11 +1,11 @@
 # oraddl
-Utility for retrieving DDL for all or specified database objects of the specified Oracle database schema.
+Utility for retrieving DDL SQL for all or listed database objects of the specified Oracle database schema.
 
 The main purpose of the utility is to track changes of database objects in a version control system or to find out differencies
 between several versions of the same databese schema.
 
 ```
-Retrieves DDL for all or specified objects of oracle database schema. Version 2.1.0 (haskell)
+Retrieves DDL SQL for all or listed database objects of the specified Oracle database schema.
 
 oraddl [OPTIONS]
 

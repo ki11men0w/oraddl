@@ -120,7 +120,7 @@ getOpts = do
             &= help "By default auto-generated objects (like indexes supporting constraints) not saved, this option enables auto-generated objects"
           }
         &= program programName
-        &= summary ("Retrieves DDL for all or specified objects of oracle database schema. Version " ++ programVersion)
+        &= summary ("Retrieves DDL SQL for all or listed objects of the specified Oracle database schema. Version " ++ programVersion)
   
   checkOptions opts
   
