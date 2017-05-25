@@ -109,7 +109,7 @@ getOpts = do
           saveDollared =
             def
             &= explicit &= name "save-dollared"
-            &= help "By default tables with names containing the dollar sign ($) in their names are ignored if not specified explicitly via --tables or --list option. This option enables saving of such tables.",
+            &= help "By default objects with names containing the dollar sign ($) in their names are ignored if not specified explicitly via --tables, --list and etc. This option enables saving of such objects.",
           saveEndSpaces =
             def
             &= explicit &= name "save-end-spaces"
