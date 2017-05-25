@@ -1,8 +1,10 @@
 # oraddl
 Utility for retrieving DDL SQL for all or listed database objects of the specified Oracle database schema.
+Each database object is stored in a separate SQL file with DDL.
 
-The main purpose of this utility is to track changes of database objects in a version control system or to find out differencies
-between several versions of the same databese schema. Each database object is stored in a separate file.
+The main purpose of this utility is to track changes of database objects in a version control system or to find
+out differencies between several instances of logically the same database scheme (what is actual for development
+proccess for several vendors or several versions of the same software).
 
 Retrieved SQLs are cleared from insignificant details (eg insignificatn trailing spaces in package sources). Also information
 not related to business logic are ignored (eg phisical storage parameters of tables) and not fall into generated SQLs.
