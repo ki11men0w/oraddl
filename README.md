@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/ki11men0w/oraddl.svg?branch=master)](https://travis-ci.org/ki11men0w/oraddl)
+
 # oraddl
 Utility for retrieving DDL SQL for all or listed database objects of the specified Oracle database schema.
 Each database object is stored in a separate SQL file with DDL.
