@@ -2,7 +2,13 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-module RetrieveDDL where
+module RetrieveDDL
+  (
+    Options(..),
+    ByTypeLists(..),
+    retreiveDDL
+  )
+where
 
 import System.IO
 import System.FilePath ((</>), addExtension, isValid)
@@ -167,8 +173,8 @@ normalizeFileName name =
 
 write2File :: FilePath -> FilePath -> FilePath -> String -> IO ()
 write2File directory name_base name_suffix content =
-  withFile (directory </> (flip addExtension "sql" . flip addExtension name_suffix $ normalizeFileName name_base)) WriteMode $ \h ->
-    hPutStr h content
+  let fileName = directory </> (flip addExtension "sql" . flip addExtension name_suffix $ normalizeFileName name_base)
+  in writeFile fileName content
 
 data WhatToRetrieve = None | All | JustList [String]
 getObjectList :: Options -> (ByTypeLists -> Maybe [String]) -> WhatToRetrieve
@@ -194,12 +200,6 @@ retrieveViewsDDL opts = do
   let
     what2Retrieve = getObjectList opts oViews
 
-  withPreparedStatement 
-    (prepareQuery . sql $
-                    "select column_name, comments \n\
-                    \  from user_col_comments     \n\
-                    \ where table_name = ?        \n\
-                    \ order by column_name        \n") $ \stm_comments -> do
   let
     iter (a::String) (b::String) (c::Maybe String) accum = saveOneFile (oOutputDir opts) (a,b,c) >> result' accum
     stm = sql
@@ -229,12 +229,7 @@ retrieveViewsDDL opts = do
                 Just c  -> printf "\ncomment on table %s\n  is %s\n/\n" (getSafeName view_name) $ sqlStringLiteral . clearSqlSource $ c
                 Nothing -> ""
         
-            iter (a::String) (b::Maybe String) accum = result' ((a,b):accum)
-
-          r <- withBoundStatement stm_comments [bindP view_name] $ \bstm ->
-                 (filter (\(_, x) -> isJust x) . reverse) `liftM` doQuery bstm iter []
-          let column_comments :: String = concat $ flip map r $ \(column_name, comments) ->
-                printf "\ncomment on column %s.%s\n  is %s\n/\n" (getSafeName view_name) (getSafeName column_name) (sqlStringLiteral . clearSqlSource $ fromJust comments) :: String
+          column_comments <- retrieveColumnsCommentsDDL view_name
         
           return $ create ++ comment ++ column_comments
 
@@ -243,16 +238,31 @@ retrieveViewsDDL opts = do
     _    -> doQuery stm iter ()
 
 
-retrieveMViewsDDL opts = do
-  let
-    what2Retrieve = getObjectList opts oMViews
-
+retrieveColumnsComments objectName =
   withPreparedStatement
     (prepareQuery . sql $
                     "select column_name, comments \n\
                     \  from user_col_comments     \n\
                     \ where table_name = ?        \n\
-                    \ order by column_name        \n") $ \stm_comments -> do
+                    \ order by column_name        \n") $ \qryColsComments -> do
+
+  let iter (a::String) (b::Maybe String) accum = result' ((a,b):accum)
+  withBoundStatement qryColsComments [bindP objectName] $ \stm ->
+      reverse `liftM` doQuery stm iter []
+
+retrieveColumnsCommentsDDL objectName = do
+  r <- filter (\(_, x) -> isJust x) `liftM` retrieveColumnsComments objectName
+  return $ concat $ flip map r $ \(column_name, comments) ->
+        printf "\ncomment on column %s.%s\n  is %s\n/\n"
+         (getSafeName objectName)
+         (getSafeName column_name)
+         (sqlStringLiteral . clearSqlSource $ fromJust comments) :: String
+
+
+retrieveMViewsDDL opts = do
+  let
+    what2Retrieve = getObjectList opts oMViews
+
   let
     iter (a::String) (b::Maybe String) (c::String) (d::Maybe String) (e::Maybe String) (f::Maybe String) accum = saveOneFile (oOutputDir opts) (a,b,c,d,e,f) >> result' accum
     stm = sql
@@ -291,7 +301,7 @@ retrieveMViewsDDL opts = do
                               Nothing -> "")
                            ++
                            (case refresh_mode of
-                              Just rm -> " on " ++ (fmap toLower rm)
+                              Just rm -> " on " ++ fmap toLower rm
                               Nothing -> "")
                            ++
                            (if need_refresh_stm then printf "\n" else "")
@@ -314,10 +324,7 @@ retrieveMViewsDDL opts = do
 
             iter (a::String) (b::Maybe String) accum = result' ((a,b):accum)
 
-          r <- withBoundStatement stm_comments [bindP view_name] $ \bstm ->
-                 (filter (\(_, x) -> isJust x) . reverse) `liftM` doQuery bstm iter []
-          let column_comments :: String = concat $ flip map r $ \(column_name, comments) ->
-                printf "\ncomment on column %s.%s\n  is %s\n/\n" (getSafeName view_name) (getSafeName column_name) (sqlStringLiteral . clearSqlSource $ fromJust comments) :: String
+          column_comments <- retrieveColumnsCommentsDDL view_name
 
           return $ create ++ comment ++ column_comments
 
@@ -377,7 +384,7 @@ retrieveMViewLogsDDL opts = do
         getMViewLogDecl (master, log_table, rowids, primary_key, sequence, object_id, include_new_values) = do
           let
             check x = x == "YES"
-            iter (a1::String) accum = result' ((a1):accum)
+            iter (a1::String) accum = result' (a1:accum)
 
           primary_key_columns <- if check primary_key
                                    then
@@ -387,7 +394,7 @@ retrieveMViewLogsDDL opts = do
                                      return []
 
           with_columns_r <- withBoundStatement qryColumnDecl [bindP log_table, bindP master] $ \stm ->
-                            (reverse . (filter (`notElem` primary_key_columns))) `liftM` doQuery stm iter []
+                            (reverse . filter (`notElem` primary_key_columns)) `liftM` doQuery stm iter []
 
           let
             getWithPart value stm = case value of
@@ -395,7 +402,7 @@ retrieveMViewLogsDDL opts = do
                                      _ -> Nothing
             with_columns :: String = if null with_columns_r
                                        then ""
-                                       else printf " (%s)" $ intercalate ", " $ flip map with_columns_r $ \(column_name) -> (getSafeName column_name) :: String
+                                       else printf " (%s)" $ intercalate ", " $ flip map with_columns_r $ \column_name -> getSafeName column_name :: String
             with_parts :: [String] = catMaybes
                                           [
                                            getWithPart object_id "object id",
@@ -406,7 +413,7 @@ retrieveMViewLogsDDL opts = do
 
             with_stm = if null with_parts
                          then ""
-                         else "with " ++ (intercalate ", " with_parts) ++ with_columns
+                         else "with " ++ intercalate ", " with_parts ++ with_columns
             include_stm = if check include_new_values then "including new values" else ""
 
             create :: String =
@@ -470,7 +477,7 @@ retrieveSourcesDDL opts = do
    where
     saveOneFile name type' textLines = do
       let
-        text = foldr (++) "" textLines
+        text = concat textLines
       
         safe_name = getSafeName name
   
@@ -507,7 +514,7 @@ retrieveSourcesDDL opts = do
           liftIO $ write2File (oOutputDir opts) name suffix text'''
         saveJava = do
           let text''' = printf "create or replace and compile java source named %s as\n%s" safe_name text
-          liftIO $ withFile (oOutputDir opts </> addExtension (normalizeFileName name) "java") WriteMode $ \h -> hPutStr h text'''
+          liftIO $ writeFile (oOutputDir opts </> addExtension (normalizeFileName name) "java") text'''
       case type' of
         "PACKAGE" -> saveSQL "pkg"
         "PACKAGE BODY" -> saveSQL "pkb"
@@ -743,12 +750,6 @@ retrieveTablesDDL opts = do
                     \  from user_tab_columns    \n\
                     \ where table_name = ?      \n\
                     \order by column_id         \n") $ \qryColumnDecl -> do
-  withPreparedStatement
-    (prepareQuery . sql $
-                    "select column_name, comments \n\
-                    \  from user_col_comments     \n\
-                    \ where table_name = ?        \n\
-                    \order by column_name         ") $ \qryColumnComments -> do
   withPreparedStatement                     
     (prepareQuery . sql $
                     "select column_name            \n\
@@ -873,11 +874,11 @@ retrieveTablesDDL opts = do
             case what2Retrieve of
               JustList lst ->
                 printf "   and a.table_name in (%s) \n" $ getUnionAll lst
-              _ -> (-- automatically created by oracle tables related to materialized views
-                    "   and a.table_name not like 'MLOG$_%'\n\
-                    \   and a.table_name not like 'RUPD$_%'\n\
-                    \"
-                   )
+              _ ->
+                   -- automatically created by oracle tables related to materialized views
+                   "   and a.table_name not like 'MLOG$_%'\n\
+                   \   and a.table_name not like 'RUPD$_%'\n\
+                   \"
                    ++
                    (
                     if not (oSaveDollared opts)
@@ -1010,11 +1011,7 @@ retrieveTablesDDL opts = do
                                            (sqlStringLiteral comments')
                   Nothing -> Nothing
     
-              iter (a1::String) (a2::Maybe String) accum = result' ((a1,a2):accum)
-   
-          columns_comments_accum <-
-            withBoundStatement qryColumnComments [bindP table_name] $ \stm ->
-              reverse `liftM` doQuery stm iter []
+          columns_comments_accum <- retrieveColumnsComments table_name
 
           let columns_order_m = Map.fromList $ zip (map ON columns_order) ([1..] :: [Int])
           let numbered_comments = zip columns_comments_accum ([1..] :: [Int])
@@ -1053,7 +1050,7 @@ retrieveTablesDDL opts = do
                         (do let spaces1 = skipMany1 space
                                 skipFieldName = (char '"' >> skipMany1 (noneOf "\"") >> char '"' >> return ()) -- имя поля взятое в кавычки, например: "Name"
                                                 <|>
-                                                (skipMany1 $ oneOf $ map toLower sympleOraNameSymbols) -- имя поля без кавычек (может содержать только "красивые" символы)
+                                                skipMany1 (oneOf $ map toLower sympleOraNameSymbols) -- имя поля без кавычек (может содержать только "красивые" символы)
                             skipFieldName >> spaces1 >> string "is" >> spaces1 >> string "not" >> spaces1 >> string "null" >> spaces >> eof)
                    then return Nothing -- это просто условие not null
                    else getConstraintDecl' $ "check (" ++ sc ++ ")"
@@ -1297,7 +1294,7 @@ retrieveTablesDDL opts = do
               _  -> Just $ "(" ++ intercalate "," r ++ ")"
 
 
-    getIOTDecl iot_type table_name columns = do
+    getIOTDecl iot_type table_name columns =
       case iot_type of
         Just "IOT" -> do
           let
@@ -1313,7 +1310,7 @@ retrieveTablesDDL opts = do
                      Nothing -> ""
                      Just 0 -> ""
                      Just i ->
-                       case columns `safeValueByIndex` (pred i) of
+                       case columns `safeValueByIndex` pred i of
                          Just cn -> " including " ++ cn ++ " overflow"
                          _       -> ""
 

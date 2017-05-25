@@ -139,4 +139,3 @@ safeValueByIndex xs i
   | i < 0 = Nothing
   | succ i > length xs = Nothing
   | otherwise = Just $ xs !! i
-                 
