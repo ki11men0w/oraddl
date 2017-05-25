@@ -2,7 +2,10 @@
 Utility for retrieving DDL SQL for all or listed database objects of the specified Oracle database schema.
 
 The main purpose of the utility is to track changes of database objects in a version control system or to find out differencies
-between several versions of the same databese schema.
+between several versions of the same databese schema. Each database object is stored in a separate file.
+
+Retrieved SQLs are cleared from insignificant details (eg insignificatn trailing spaces in package sources). Also information
+not related to business logic are ignored (eg phisical storage parameters of tables) and not fall into generated SQLs.
 
 ```
 Retrieves DDL SQL for all or listed database objects of the specified Oracle database schema.
