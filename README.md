@@ -9,7 +9,7 @@ out differencies between several instances of logically the same database scheme
 proccess for several vendors or several versions of the same software).
 
 Retrieved SQLs are cleared from insignificant details (eg insignificatn trailing spaces in package sources). Also information
-not related to business logic are ignored (eg phisical storage parameters of tables) and not fall into generated SQLs.
+not related to business logic are ignored (eg physical storage parameters of tables) and not fall into generated SQLs.
 
 ```
 Retrieves DDL SQL for all or listed database objects of the specified Oracle database schema.
