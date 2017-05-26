@@ -2,7 +2,7 @@
 sudo: false
 
 # Choose a lightweight base image; we provide our own build tools.
-language: c
+language: generic
 
 # GHC depends on GMP. You can add other dependencies here as well.
 addons:
@@ -22,11 +22,16 @@ before_install:
 - mkdir -p ~/.local/bin
 - export PATH=$HOME/.local/bin:$PATH
 - travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
+# Download oracle instant client library
+- mkdir -p ./lib
+- travis_retry curl -L https://github.com/ki11men0w/resources/raw/master/oracle/instantclient/libclntsh.so.12.1.gz > ./lib/libclntsh.so.12.1.gz
+- gzip -d ./lib/libclntsh.so.12.1.gz
+- ln -s libclntsh.so.12.1 ./lib/libclntsh.so
 
 # This line does all of the work: installs GHC if necessary, build the library,
 # executables, and test suites, and runs the test suites. --no-terminal works
 # around some quirks in Travis's terminal implementation.
-script: stack $ARGS --no-terminal --install-ghc test --haddock
+script: stack $ARGS --no-terminal --install-ghc test --haddock --extra-lib-dirs=./lib/
 
 # Caching so the next build will be fast too.
 cache:
