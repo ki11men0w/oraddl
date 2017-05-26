@@ -8,7 +8,9 @@ language: c
 addons:
   apt:
     packages:
-    - libgmp-dev
+    - libgmp-dev  # for ghc
+    - libaio1     # for oracle
+    - unixodbc    # for oracle
 
 # The different configurations we want to test. You could also do things like
 # change flags or use --stack-yaml to point to a different file.
@@ -24,9 +26,20 @@ before_install:
 - travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
 # Download oracle instant client library
 - mkdir -p ./lib
-- travis_retry curl -L https://github.com/ki11men0w/resources/raw/master/oracle/instantclient/libclntsh.so.12.1.gz > ./lib/libclntsh.so.12.1.gz
+- travis_retry curl -L https://github.com/ki11men0w/resources/raw/master/oracle/instantclient/libclntsh.so.12.1.gz     > ./lib/libclntsh.so.12.1.gz
+- travis_retry curl -L https://github.com/ki11men0w/resources/raw/master/oracle/instantclient/libclntshcore.so.12.1.gz > ./lib/libclntshcore.so.12.1.gz
+- travis_retry curl -L https://github.com/ki11men0w/resources/raw/master/oracle/instantclient/libipc1.so.gz            > ./lib/libipc1.so.gz
+- travis_retry curl -L https://github.com/ki11men0w/resources/raw/master/oracle/instantclient/libmql1.so.gz            > ./lib/libmql1.so.gz
+- travis_retry curl -L https://github.com/ki11men0w/resources/raw/master/oracle/instantclient/libnnz12.so.gz           > ./lib/libnnz12.so.gz
+- travis_retry curl -L https://github.com/ki11men0w/resources/raw/master/oracle/instantclient/libons.so.gz             > ./lib/libons.so.gz
 - gzip -d ./lib/libclntsh.so.12.1.gz
+- gzip -d ./lib/libclntshcore.so.12.1
+- gzip -d ./lib/libipc1.so.gz
+- gzip -d ./lib/libmql1.so.gz
+- gzip -d ./lib/libnnz12.so.gz
+- gzip -d ./lib/libons.so.gz
 - ln -s libclntsh.so.12.1 ./lib/libclntsh.so
+- export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:`pwd`/lib/
 
 # This line does all of the work: installs GHC if necessary, build the library,
 # executables, and test suites, and runs the test suites. --no-terminal works
