@@ -209,10 +209,18 @@ retrieveViewsDDL opts = do
            \       user_tab_comments b             \n\
            \ where a.view_name=b.table_name(+)     \n"
            ++
+           (
            case what2Retrieve of
              JustList lst ->
                printf "   and a.view_name in (%s) \n" $ getUnionAll lst
              _ -> ""
+           )
+           ++
+           (
+             if not (oSaveDollared opts)
+               then "   and a.view_name not like '%$%'"
+               else ""
+           )
           )
   
     saveOneFile outputDir viewInfo@(view_name, _, _) = do
@@ -277,7 +285,14 @@ retrieveMViewsDDL opts = do
            \  left join user_mview_comments b                                              \n\
            \         on a.mview_name = b.mview_name                                        \n\
            \        and b.comments not like 'snapshot table for snapshot %.'||a.mview_name \n\
+           \ where 1 = 1                                                                   \n\
            \"
+           ++
+           (
+             if not (oSaveDollared opts)
+             then "   and a.mview_name not like '%$%'"
+             else ""
+           )
            ++
            case what2Retrieve of
              JustList lst ->
@@ -368,7 +383,14 @@ retrieveMViewLogsDDL opts = do
            \     , a.object_id          \n\
            \     , a.include_new_values \n\
            \  from user_mview_logs a    \n\
+           \ where 1 = 1                \n\
            \"
+           ++
+           (
+             if not (oSaveDollared opts)
+               then "   and a.master not like '%$%'"
+               else ""
+           )
            ++
            case what2Retrieve of
              JustList lst ->
@@ -455,6 +477,12 @@ retrieveSourcesDDL opts = do
            "   and not(type in ('TYPE', 'TYPE BODY') and name like 'SYS_PLSQL_%') "
            )
            ++
+           (
+             if not (oSaveDollared opts)
+             then "   and name not like '%$%'"
+             else ""
+           )
+           ++
            case what2Retrieve of
              JustList lst ->
                printf "   and name in (%s) \n" $ getUnionAll lst
@@ -535,11 +563,19 @@ retrieveTriggersDDL opts = do
     iter (b::String) (c::String) (d::String) (e::String) accum = saveOneFile (schema,b,c,d,e) >> result' accum
     stm = sql    (
                    "select trigger_name,description,trigger_body,status      \n\
-                   \  from user_triggers                                     "
+                   \  from user_triggers                                     \n\
+                   \ where 1 = 1                                             \n\
+                   \"
+                   ++
+                   (
+                     if not (oSaveDollared opts)
+                     then "   and trigger_name not like '%$%'"
+                     else ""
+                   )
                    ++
                    case what2Retrieve of
                      JustList lst ->
-                       printf " where trigger_name in (%s) \n" $ getUnionAll lst
+                       printf "   and trigger_name in (%s) \n" $ getUnionAll lst
                      _ -> ""
                   )
 
@@ -627,11 +663,19 @@ retrieveSynonymsDDL opts = do
             \      ,table_owner      \n\
             \      ,table_name       \n\
             \      ,%s as db_link    \n\
-            \  from user_synonyms    "
+            \  from user_synonyms    \n\
+            \ where 1 = 1            \n\
+            \"
+            ++
+            (
+              if not (oSaveDollared opts)
+              then "   and synonym_name not like '%$%'"
+              else ""
+            )
             ++
             case what2Retrieve of
               JustList lst ->
-                printf " where synonym_name in (%s) \n" $ getUnionAll lst
+                printf "   and synonym_name in (%s) \n" $ getUnionAll lst
               _ -> ""
 
     stm = sql $ printf sql' $ if dbLinkColumnExists then "db_link" else "null"
@@ -678,11 +722,19 @@ retrieveSequencesDDL opts = do
             \      ,cache_size as cache_size_x            \n\
             \      ,cycle_flag                            \n\
             \      ,order_flag                            \n\
-            \  from user_sequences                        "
+            \  from user_sequences                        \n\
+            \ where 1 = 1                                 \n\
+            \"
+            ++
+            (
+              if not (oSaveDollared opts)
+              then "   and a.sequence_name not like '%$%'"
+              else ""
+            )
             ++
             case what2Retrieve of
               JustList lst ->
-                printf " where sequence_name in (%s) \n" $ getUnionAll lst
+                printf "   and sequence_name in (%s) \n" $ getUnionAll lst
               _ -> ""
            )
 
