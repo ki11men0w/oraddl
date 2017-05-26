@@ -33,7 +33,7 @@ before_install:
 - travis_retry curl -L https://github.com/ki11men0w/resources/raw/master/oracle/instantclient/libnnz12.so.gz           > ./lib/libnnz12.so.gz
 - travis_retry curl -L https://github.com/ki11men0w/resources/raw/master/oracle/instantclient/libons.so.gz             > ./lib/libons.so.gz
 - gzip -d ./lib/libclntsh.so.12.1.gz
-- gzip -d ./lib/libclntshcore.so.12.1
+- gzip -d ./lib/libclntshcore.so.12.1.gz
 - gzip -d ./lib/libipc1.so.gz
 - gzip -d ./lib/libmql1.so.gz
 - gzip -d ./lib/libnnz12.so.gz
