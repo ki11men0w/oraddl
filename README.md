@@ -1,7 +1,7 @@
 [![Build Status](https://travis-ci.org/ki11men0w/oraddl.svg?branch=master)](https://travis-ci.org/ki11men0w/oraddl)
 
 # oraddl
-Utility for retrieving DDL SQL for all or listed database objects of the specified Oracle database schema.
+Command line utility for retrieving DDL SQL for all or listed database objects of the specified Oracle database schema.
 Each database object is stored in a separate SQL file with DDL.
 
 The main purpose of this utility is to track changes of database objects in a version control system or to find
@@ -12,6 +12,7 @@ Retrieved SQLs are cleared from insignificant details (eg insignificatn trailing
 not related to business logic are ignored (eg physical storage parameters of tables) and not fall into generated SQLs.
 
 ```
+$ oraddl --help
 Retrieves DDL SQL for all or listed database objects of the specified Oracle database schema.
 
 oraddl [OPTIONS]
