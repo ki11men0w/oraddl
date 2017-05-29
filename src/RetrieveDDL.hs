@@ -659,26 +659,28 @@ retrieveSynonymsDDL opts = do
 
   let
     iter (b::String) (c::Maybe String) (d::String) (e::Maybe String) accum = saveOneFile (schema,b,c,d,e) >> result' accum
-    sql'  = "select synonym_name     \n\
+    dbLink = if dbLinkColumnExists then "db_link" else "null"
+    sql'  = printf
+            "select synonym_name     \n\
             \      ,table_owner      \n\
             \      ,table_name       \n\
             \      ,%s as db_link    \n\
             \  from user_synonyms    \n\
             \ where 1 = 1            \n\
             \"
+            dbLink
+            ++
+            case what2Retrieve of
+              JustList lst ->
+                printf "   and synonym_name in (%s) \n" $ getUnionAll lst
+              _ -> ""
             ++
             (
               if not (oSaveDollared opts)
               then "   and synonym_name not like '%$%'"
               else ""
             )
-            ++
-            case what2Retrieve of
-              JustList lst ->
-                printf "   and synonym_name in (%s) \n" $ getUnionAll lst
-              _ -> ""
-
-    stm = sql $ printf sql' $ if dbLinkColumnExists then "db_link" else "null"
+    stm = sql sql'
 
   case what2Retrieve of
     None -> return ()
@@ -728,7 +730,7 @@ retrieveSequencesDDL opts = do
             ++
             (
               if not (oSaveDollared opts)
-              then "   and a.sequence_name not like '%$%'"
+              then "   and sequence_name not like '%$%'"
               else ""
             )
             ++
