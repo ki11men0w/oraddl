@@ -24,17 +24,17 @@ Common flags:
   -v --views[=NAME,NAME,...]                    Names of views to retrieve. Names are case
                                                 sensitive. If you specify no names then all the
                                                 views will be retrieved
-     --sources=ITEM                             Names of sources (packages, functions,
+     --sources=[=NAME,NAME,...]                 Names of sources (packages, functions,
                                                 procedures, java, types) to retrieve. Names are
                                                 case sensitive. If you specify no names then all
                                                 the sources will be retrieved
-     --triggers=ITEM                            Names of triggers to retrieve. Names are case
+     --triggers=[=NAME,NAME,...]                Names of triggers to retrieve. Names are case
                                                 sensitive. If you specify no names then all the
                                                 triggers will be retrieved
-     --synonyms=ITEM                            Names of synonyms to retrieve. Names are case
+     --synonyms=[=NAME,NAME,...]                Names of synonyms to retrieve. Names are case
                                                 sensitive. If you specify no names then all the
                                                 synonyms will be retrieved
-     --sequences=ITEM                           Names of sequences to retrieve. Names are case
+     --sequences=[=NAME,NAME,...]               Names of sequences to retrieve. Names are case
                                                 sensitive. If you specify no names then all the
                                                 sequences will be retrieved
      --mviews[=NAME,NAME,...]                   Names of materialized views to retrieve. Names
@@ -44,7 +44,7 @@ Common flags:
                                                 materialized view logs. Names are case sensitive.
                                                 If you specify no names then all materialized view
                                                 logs will be retrieved
-     --list=ITEM                                Names of objects of any type to retrieve. Names
+     --list=NAME,NAME,...                       Names of objects of any type to retrieve. Names
                                                 are case sensitive. Use this option instead of
                                                 --tables, --views, etc. if the type of objects is
                                                 unknown
