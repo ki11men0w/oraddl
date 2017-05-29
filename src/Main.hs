@@ -63,21 +63,25 @@ getOpts = do
             &= help "Names of views to retrieve. Names are case sensitive. If you specify no names then all the views will be retrieved",
           sources =
             def
+            &= explicit &= name "sources"
             &= typ "NAME,NAME,..."
             &= opt ""
             &= help "Names of sources (packages, functions, procedures, java, types) to retrieve. Names are case sensitive. If you specify no names then all the sources will be retrieved",
           triggers =
             def
+            &= explicit &= name "triggers"
             &= typ "NAME,NAME,..."
             &= opt ""
             &= help "Names of triggers to retrieve. Names are case sensitive. If you specify no names then all the triggers will be retrieved",
           synonyms =
             def
+            &= explicit &= name "synonyms"
             &= typ "NAME,NAME,..."
             &= opt ""
             &= help "Names of synonyms to retrieve. Names are case sensitive. If you specify no names then all the synonyms will be retrieved",
           sequences =
             def
+            &= explicit &= name "sequences"
             &= typ "NAME,NAME,..."
             &= opt ""
             &= help "Names of sequences to retrieve. Names are case sensitive. If you specify no names then all the sequences will be retrieved",
@@ -95,6 +99,7 @@ getOpts = do
             &= help "Names of tables for witch to retrieve materialized view logs. Names are case sensitive. If you specify no names then all materialized view logs will be retrieved",
           list =
             def
+            &= explicit &= name "list"
             &= typ "NAME,NAME,..."
             &= help "Names of objects of any type to retrieve. Names are case sensitive. Use this option instead of --tables, --views, etc. if the type of objects is unknown",
           listf =
