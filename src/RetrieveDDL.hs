@@ -328,7 +328,7 @@ retrieveMViewsDDL opts = do
                               _ -> ""
                            )
             create :: String =
-              printf "create or replace materialized view %s\n%sas\n%s\n/\n"
+              printf "create materialized view %s\n%sas\n%s\n/\n"
                        (getSafeName view_name)
                        refresh_stm
                        (clearSqlSource query)
@@ -439,7 +439,7 @@ retrieveMViewLogsDDL opts = do
             include_stm = if check include_new_values then "including new values" else ""
 
             create :: String =
-              printf "create or replace materialized view log on %s\n%s\n/\n"
+              printf "create materialized view log on %s\n%s\n/\n"
                        (getSafeName master)
                        (intercalate (printf "\n") (filter (not . null) [with_stm, include_stm]))
 
