@@ -36,6 +36,22 @@ install:
 # around some quirks in Travis's terminal implementation.
 script: stack $ARGS --no-terminal --install-ghc test --haddock --extra-lib-dirs=`pwd`/lib/
 
+before_deploy:
+  - stack $ARGS --no-terminal install
+  - mkdir -p .deploy
+  - cp -ap `stack path --local-bin`/oraddl .deploy/
+  - gzip .deploy/oraddl
+  - mv .deploy/oraddl.gz .deploy/oraddl.linux.x86_64.gz
+
+deploy:
+  provider: releases
+  api_key: $GITHUB_TOKEN
+  file: .deploy/oraddl.linux.x86_64.gz
+  skip_cleanup: true
+  on:
+    tags: true
+    condition: $ARGS = ""
+
 # Caching so the next build will be fast too.
 cache:
   directories:
