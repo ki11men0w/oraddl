@@ -4,7 +4,7 @@ packages:
 - '.'
 - location:
     git: https://github.com/ki11men0w/takusen.git
-    commit: 7acf9e399a48ea60ee36a43cd9e8b5a29a529839
+    commit: f72ffdc686ad2149aaf32c6bf3d7b060fdabcc47
   extra-dep: true
 
 # Dependency packages to be pulled from upstream that are not in the resolver
