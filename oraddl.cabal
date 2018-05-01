@@ -1,5 +1,5 @@
 name: oraddl
-version: 2.1.2
+version: 2.1.4
 cabal-version: >=1.2
 build-type: Simple
 license: PublicDomain
@@ -24,4 +24,5 @@ executable oraddl
     ghc-options: -O3
     other-modules: OracleUtils,
                    RetrieveDDL,
-                   Utils
+                   Utils,
+                   Paths_oraddl
