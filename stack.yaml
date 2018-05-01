@@ -1,10 +1,10 @@
-resolver: lts-8.15
+resolver: lts-11.6
 
 packages:
 - '.'
 - location:
     git: https://github.com/ki11men0w/takusen.git
-    commit: f72ffdc686ad2149aaf32c6bf3d7b060fdabcc47
+    commit: 1b654062f43a4626edf3532a4a14fbc7d862478a
   extra-dep: true
 
 # Dependency packages to be pulled from upstream that are not in the resolver
