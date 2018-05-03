@@ -1,4 +1,6 @@
-resolver: lts-11.6
+resolver: lts-11.7
+# On Windows there is bug in ghc 8.2.2, so use lower version with ghc-8.0.2
+# resolver: lts-9.21
 
 packages:
 - '.'
