@@ -9,7 +9,9 @@ module Utils
    isSpace,
    strip,
    parseMatch,
-   safeValueByIndex
+   safeValueByIndex,
+   sqlComment,
+   sqlEndLineComment
   )
 where
 

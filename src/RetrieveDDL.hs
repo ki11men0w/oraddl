@@ -38,7 +38,9 @@ import Utils ( clearSqlSource,
                isSpace,
                strip,
                parseMatch,
-               safeValueByIndex
+               safeValueByIndex,
+               sqlComment,
+               sqlEndLineComment
              )
 
 data ByTypeLists = ByTypeLists {
@@ -517,6 +519,7 @@ retrieveSourcesDDL opts = do
                                  spaces
                                  t'  <- stringCSI type'
                                  spaces
+                                 comments <- many (sqlComment <|> (sqlEndLineComment >>= return . ("\n" ++))<|> (space >> spaces >> return " ") )
             
                                  n' <- try $ do string "\""
                                                 n <- stringCSI name
@@ -526,7 +529,7 @@ retrieveSourcesDDL opts = do
                                  x <- many anyChar
                                  let nameMismatchInCode = not $ if isNameCaseSensitive then n' == name else map toUpper n' == map toUpper name
                                  return $ 
-                                   t' ++ " " ++
+                                   t' ++ " " ++ concat (dropWhileEnd (==" ") comments) ++
                                    case () of
                                           _
                                             | isNameCaseSensitive -> "\"" ++ name ++ "\""
