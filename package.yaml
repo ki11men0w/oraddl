@@ -1,0 +1,37 @@
+name:                oraddl
+version:             2.1.6
+github:              "ki11men0w/oraddl"
+license:             BSD3
+author:              "Maksim Golubev"
+maintainer:          "maksim.golubev72@gmail.com"
+copyright:           "2012-2020 Maksim Golubev"
+
+extra-source-files:
+- README.md
+
+# Metadata used when publishing your package
+synopsis:            Extracts data definitions of oracle objects into plain text files.
+category:            DataBase
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/ki11men0w/oraddl#readme>
+
+
+dependencies:
+  - base >= 4.3.1.0
+
+executables:
+  oraddl:
+    main:            Main.hs
+    source-dirs:     src
+    ghc-options:
+      - -O3
+    dependencies:
+      - cmdargs >= 0.9.3
+      - temporary >= 1.1.2.3
+      - Takusen >= 0.8.8
+      - parsec >= 3
+      - mtl
+      - filepath
+      - containers
