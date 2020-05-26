@@ -37,7 +37,7 @@ install:
 script: stack $ARGS --no-terminal --install-ghc test --haddock --extra-lib-dirs=`pwd`/lib/
 
 before_deploy:
-  - stack $ARGS --no-terminal install
+  - stack $ARGS --no-terminal install --extra-lib-dirs=`pwd`/lib/
   - mkdir -p .deploy
   - cp -ap `stack path --local-bin`/oraddl .deploy/
   - gzip .deploy/oraddl
