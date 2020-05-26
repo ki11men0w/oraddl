@@ -364,94 +364,94 @@ retrieveMViewLogsDDL opts = do
                     \   and b.table_name = ?              \n\
                     \   and a.column_name = b.column_name \n\
                     \order by a.column_id                 \n") $ \qryColumnDecl -> do
-  withPreparedStatement
-    (prepareQuery . sql $
-                    "select cc.column_name                         \n\
-                    \  from user_constraints c,                    \n\
-                    \       user_cons_columns cc                   \n\
-                    \ where c.table_name = ?                       \n\
-                    \   and c.table_name = cc.table_name           \n\
-                    \   and c.constraint_name = cc.constraint_name \n\
-                    \   and c.constraint_type = 'P'                \n\
-                    \") $ \qryPrimaryKeyFields -> do
-  let
-    iter (a::String) (b::String) (c::String) (d::String) (e::String) (f::String) (g::String) accum = saveOneFile (oOutputDir opts) (a,b,c,d,e,f,g) >> result' accum
-    stm = sql
-          (
-           "select a.master             \n\
-           \     , a.log_table          \n\
-           \     , a.rowids             \n\
-           \     , a.primary_key        \n\
-           \     , a.sequence           \n\
-           \     , a.object_id          \n\
-           \     , a.include_new_values \n\
-           \  from user_mview_logs a    \n\
-           \ where 1 = 1                \n\
-           \"
-           ++
-           (
-             if not (oSaveDollared opts)
-               then "   and a.master not like '%$%'"
-               else ""
-           )
-           ++
-           case what2Retrieve of
-             JustList lst ->
-               printf "   and a.master in (%s) \n" $ getUnionAll lst
-             _ -> ""
-          )
-
-    saveOneFile outputDir mviewLogInfo@(master, _, _, _, _, _, _) = do
-      decl <- getMViewLogDecl mviewLogInfo
-      liftIO $ write2File outputDir master "mvlog" decl
-      return ()
-      where
-        getMViewLogDecl (master, log_table, rowids, primary_key, sequence, object_id, include_new_values) = do
-          let
-            check x = x == "YES"
-            iter (a1::String) accum = result' (a1:accum)
-
-          primary_key_columns <- if check primary_key
-                                   then
-                                     withBoundStatement qryPrimaryKeyFields [bindP master] $ \stm ->
-                                       reverse `liftM` doQuery stm iter []
-                                   else
-                                     return []
-
-          with_columns_r <- withBoundStatement qryColumnDecl [bindP log_table, bindP master] $ \stm ->
-                            (reverse . filter (`notElem` primary_key_columns)) `liftM` doQuery stm iter []
-
-          let
-            getWithPart value stm = case value of
-                                     "YES" -> Just stm
-                                     _ -> Nothing
-            with_columns :: String = if null with_columns_r
-                                       then ""
-                                       else printf " (%s)" $ intercalate ", " $ flip map with_columns_r $ \column_name -> getSafeName column_name :: String
-            with_parts :: [String] = catMaybes
-                                          [
-                                           getWithPart object_id "object id",
-                                           getWithPart primary_key "primary key",
-                                           getWithPart rowids "rowid",
-                                           getWithPart sequence "sequence"
-                                          ]
-
-            with_stm = if null with_parts
-                         then ""
-                         else "with " ++ intercalate ", " with_parts ++ with_columns
-            include_stm = if check include_new_values then "including new values" else ""
-
-            create :: String =
-              printf "create materialized view log on %s\n%s\n/\n"
-                       (getSafeName master)
-                       (intercalate (printf "\n") (filter (not . null) [with_stm, include_stm]))
-
-
-          return create
-
-  case what2Retrieve of
-    None -> return ()
-    _    -> doQuery stm iter ()
+    withPreparedStatement
+      (prepareQuery . sql $
+                      "select cc.column_name                         \n\
+                      \  from user_constraints c,                    \n\
+                      \       user_cons_columns cc                   \n\
+                      \ where c.table_name = ?                       \n\
+                      \   and c.table_name = cc.table_name           \n\
+                      \   and c.constraint_name = cc.constraint_name \n\
+                      \   and c.constraint_type = 'P'                \n\
+                      \") $ \qryPrimaryKeyFields -> do
+      let
+        iter (a::String) (b::String) (c::String) (d::String) (e::String) (f::String) (g::String) accum = saveOneFile (oOutputDir opts) (a,b,c,d,e,f,g) >> result' accum
+        stm = sql
+              (
+               "select a.master             \n\
+               \     , a.log_table          \n\
+               \     , a.rowids             \n\
+               \     , a.primary_key        \n\
+               \     , a.sequence           \n\
+               \     , a.object_id          \n\
+               \     , a.include_new_values \n\
+               \  from user_mview_logs a    \n\
+               \ where 1 = 1                \n\
+               \"
+               ++
+               (
+                 if not (oSaveDollared opts)
+                   then "   and a.master not like '%$%'"
+                   else ""
+               )
+               ++
+               case what2Retrieve of
+                 JustList lst ->
+                   printf "   and a.master in (%s) \n" $ getUnionAll lst
+                 _ -> ""
+              )
+    
+        saveOneFile outputDir mviewLogInfo@(master, _, _, _, _, _, _) = do
+          decl <- getMViewLogDecl mviewLogInfo
+          liftIO $ write2File outputDir master "mvlog" decl
+          return ()
+          where
+            getMViewLogDecl (master, log_table, rowids, primary_key, sequence, object_id, include_new_values) = do
+              let
+                check x = x == "YES"
+                iter (a1::String) accum = result' (a1:accum)
+    
+              primary_key_columns <- if check primary_key
+                                       then
+                                         withBoundStatement qryPrimaryKeyFields [bindP master] $ \stm ->
+                                           reverse `liftM` doQuery stm iter []
+                                       else
+                                         return []
+    
+              with_columns_r <- withBoundStatement qryColumnDecl [bindP log_table, bindP master] $ \stm ->
+                                (reverse . filter (`notElem` primary_key_columns)) `liftM` doQuery stm iter []
+    
+              let
+                getWithPart value stm = case value of
+                                         "YES" -> Just stm
+                                         _ -> Nothing
+                with_columns :: String = if null with_columns_r
+                                           then ""
+                                           else printf " (%s)" $ intercalate ", " $ flip map with_columns_r $ \column_name -> getSafeName column_name :: String
+                with_parts :: [String] = catMaybes
+                                              [
+                                               getWithPart object_id "object id",
+                                               getWithPart primary_key "primary key",
+                                               getWithPart rowids "rowid",
+                                               getWithPart sequence "sequence"
+                                              ]
+    
+                with_stm = if null with_parts
+                             then ""
+                             else "with " ++ intercalate ", " with_parts ++ with_columns
+                include_stm = if check include_new_values then "including new values" else ""
+    
+                create :: String =
+                  printf "create materialized view log on %s\n%s\n/\n"
+                           (getSafeName master)
+                           (intercalate (printf "\n") (filter (not . null) [with_stm, include_stm]))
+    
+    
+              return create
+    
+      case what2Retrieve of
+        None -> return ()
+        _    -> doQuery stm iter ()
 
 
 retrieveSourcesDDL opts = do
@@ -808,581 +808,581 @@ retrieveTablesDDL opts = do
                     \  from user_tab_columns    \n\
                     \ where table_name = ?      \n\
                     \order by column_id         \n") $ \qryColumnDecl -> do
-  withPreparedStatement                     
-    (prepareQuery . sql $
-                    "select column_name            \n\
-                    \  from user_cons_columns      \n\
-                    \ where table_name = ?         \n\
-                    \   and constraint_name = ?    \n\
-                    \order by position             ") $ \qryConstraintColumns1 -> do
-  withPreparedStatement
-    (prepareQuery . sql $
-                    "select column_name,           \n\
-                    \       table_name             \n\
-                    \  from user_cons_columns      \n\
-                    \ where constraint_name = ?    \n\
-                    \order by position             ") $ \qryConstraintColumns2 -> do
-  withPreparedStatement
-    (prepareQuery . sql $
-                    "select constraint_name,                                            \n\
-                    \       constraint_type,                                            \n\
-                    \       search_condition,                                           \n\
-                    \       r_owner,                                                    \n\
-                    \       r_constraint_name,                                          \n\
-                    \       delete_rule,                                                \n\
-                    \       status,                                                     \n\
-                    \       deferrable,                                                 \n\
-                    \       deferred                                                    \n\
-                    \  from user_constraints                                            \n\
-                    \ where table_name = ?                                              \n\
-                    \order by decode(constraint_type, 'P',1, 'U',2, 'R',3, 'C',4, 100), \n\
-                    \         constraint_name") $ \qryConstraintDecl -> do
-  withPreparedStatement
-    (prepareQuery . sql $
-                    "select index_name    \n\
-                    \     , uniqueness    \n\
-                    \     , table_owner   \n\
-                    \     , partitioned   \n\
-                    \     , index_type    \n\
-                    \from user_indexes    \n\
-                    \where 1=1            "
-                    ++ 
-                    (
-                    if oSaveAutoGenerated opts
-                    then
-                    ""
-                    else
-                    "and generated = 'N'  \n"
-                    )
-                    ++
-                    "and table_name = ?   \n\
-                    \order by index_name  ") $ \qryIndexes -> do
-  withPreparedStatement    
-    (prepareQuery . sql $
-                    "select column_name         \n\
-                    \     , column_position     \n\
-                    \     , descend             \n\
-                    \  from user_ind_columns    \n\
-                    \ where index_name = ?      \n\
-                    \order by column_position   ") $ \qryIndexColumns1 -> do
-  withPreparedStatement
-    (prepareQuery . sql $
-                    "select column_name         \n\
-                    \     , column_position     \n\
-                    \     , '' as descend       \n\
-                    \  from user_ind_columns    \n\
-                    \ where index_name = ?      \n\
-                    \order by column_position   ") $ \qryIndexColumns2 -> do
-  withPreparedStatement
-    (prepareQuery . sql $
-                    "select column_position         \n\
-                    \     , column_expression       \n\
-                    \  from user_ind_expressions    \n\
-                    \ where index_name = ?          ") $ \qryIndexColumnExpressions -> do
-  withPreparedStatement
-    (prepareQuery . sql $
-                    "select partitioning_type        \n\
-                    \     , subpartitioning_type     \n\
-                    \  from user_part_tables         \n\
-                    \ where table_name = ?           ") $ \qryPartTables -> do
-  withPreparedStatement
-    (prepareQuery . sql $
-                    "select column_name              \n\
-                    \  from user_part_key_columns    \n\
-                    \ where name = ?                 \n\
-                    \order by column_position        ") $ \qryPartKeyColumns -> do
-  withPreparedStatement
-    (prepareQuery . sql $
-                    "select column_name                 \n\
-                    \  from user_subpart_key_columns    \n\
-                    \ where name = ?                    \n\
-                    \order by column_position           ") $ \qrySubPartKeyColumns -> do
-  withPreparedStatement
-    (prepareQuery . sql $
-                    "select ui.include_column             \n\
-                    \  from user_constraints uc,          \n\
-                    \       user_indexes ui               \n\
-                    \ where uc.constraint_type = 'P'      \n\
-                    \   and uc.index_name = ui.index_name \n\
-                    \   and uc.table_name = ?             ") $ \qryIncludeColumn -> do
-  let
-    stm  = sql
-           (
-            "select a.table_name                               \n\
-            \     , b.comments                                 \n\
-            \     , a.temporary                                \n\
-            \     , a.duration                                 \n\
-            \     , a.row_movement                             \n\
-            \     , a.cache                                    \n\
-            \     , a.iot_type                                 \n\
-            \  from user_tables a,                             \n\
-            \       user_tab_comments b                        \n\
-            \ where a.table_name=b.table_name(+)               \n\
-            \   and (a.iot_type is null                        \n\
-            \        or                                        \n\
-            \        a.iot_type <> 'IOT_OVERFLOW')             \n\
-            \   and not exists (                               \n\
-            \              select 1                            \n\
-            \                from user_mviews v                \n\
-            \               where a.table_name = v.mview_name  \n\
-            \                 and v.owner = user               \n\
-            \                  )                               \n\
-            \"
-            ++
-            case what2Retrieve of
-              JustList lst ->
-                printf "   and a.table_name in (%s) \n" $ getUnionAll lst
-              _ ->
-                   -- automatically created by oracle tables related to materialized views
-                   "   and a.table_name not like 'MLOG$_%'\n\
-                   \   and a.table_name not like 'RUPD$_%'\n\
-                   \"
-                   ++
-                   (
-                    if not (oSaveDollared opts)
-                      then "   and a.table_name not like '%$%'"
-                      else ""
-                   )
-           )
-   
-    iter (a1::String) (a2::Maybe String) (a3::String) (a4::Maybe String) (a5::String) (a6::String) (a7::Maybe String) accum = saveOneFile a1 a2 a3 a4 a5 a6 a7 >> result' accum
-
-    -- Сохраняет одну таблицу
-    saveOneFile table_name comments temporary duration row_movement cache iot_type = do
-
-      -- Соединяем все вместе и получаем декларацию всей таблицы
-      (columns_decl :: Maybe String, columns_order :: [String]) <- getDeclColumns table_name
-      partitions_decl <- getPartitionsDecl table_name
-      columns_comment_decl :: Maybe String <- getDeclColumnsComment table_name columns_order
-      constraints_list <- getConstraintsList table_name
-      let constraints = M.fromList $ map (\x -> (constraint_name x, ())) constraints_list
-      inline_constraints_decl :: Maybe String <-
-        getConstraintsDeclInline schema table_name (if isJust iot_type then onlyPrimaryKey else const False) constraints_list
-      constraints_decl :: Maybe String <- getConstraintsDecl schema table_name (if isJust iot_type then notPrimaryKey else const True) constraints_list
-      indexes_decl :: Maybe String <- getDeclIndexes schema table_name $ if oSaveAutoGenerated opts then Map.empty else constraints 
-      iot_decl :: Maybe String <- getIOTDecl iot_type table_name columns_order
-      let
-        table_spec = if temporary == "Y" then "global temporary " else ""
-        temporary_decl = 
-          case temporary of
-            "Y" -> case duration of
-                     Just "SYS$TRANSACTION" -> Just "on commit delete rows"
-                     Just "SYS$SESSION"     -> Just "on commit preserve rows"
-                     _                      -> Nothing
-            _   -> Nothing
-  
-        decl :: String =
-          printf "\
-                  \create %stable %s" table_spec (getSafeName table_name)
-          ++
-          (if isJust columns_decl || isJust inline_constraints_decl then
-             "\n (\n"
-             ++
-             (intercalate ",\n" . catMaybes $ [columns_decl, inline_constraints_decl])
-             ++
-             "\n )"
-           else "")
-          ++
-          maybe "" ("\n"++) iot_decl
-          ++
-          maybe "" ("\n"++) partitions_decl
-          ++
-          case cache of
-            "Y" -> "\ncache"
-            _ -> ""
-          ++
-          case row_movement of
-            "ENABLED" -> "\nenable row movement"
-            _ -> ""
-          ++
-          maybe "" ("\n"++) temporary_decl
-          ++
-          "\n/\n"
-          ++
-          maybe "" (printf "\ncomment on table %s\n  is %s\n/\n" (getSafeName table_name) . sqlStringLiteral) comments
-          ++
-          fromMaybe "" columns_comment_decl
-          ++
-          maybe "" ("\n"++) indexes_decl
-          ++
-          maybe "" ("\n"++) constraints_decl
-                
-      liftIO $ write2File (oOutputDir opts) table_name "tab" decl
-  
-
-    -- Получение деклараций колонок таблицы
-    getDeclColumns table_name = do
-          let
-            -- Получение декларации для колонки таблицы
-            getColumnDecl (column_name, data_type, data_length, data_precision, data_scale, nullable, data_default) =
-                printf "  %s %s" (getSafeName column_name) data_type
-                ++
-                -- Обрабатываем тип даннх
-                case data_type of
-                  "CHAR"     -> printf "(%d)" data_length
-                  "VARCHAR2" -> printf "(%d)" data_length
-                  "NUMBER"   -> case data_precision of
-                                  Nothing -> ""
-                                  Just data_precision' -> "("
-                                                          ++
-                                                          show data_precision'
-                                                          ++
-                                                          case data_scale of
-                                                            Nothing -> ""
-                                                            Just 0 -> ""
-                                                            Just data_scale' -> printf ",%d" data_scale'
-                                                          ++
-                                                          ")"
-                  _ -> ""
-                ++
-                -- Значение поумолчанию
-                case data_default of
-                  Nothing -> ""
-                  Just data_default' -> " default " ++ dropWhileEnd isSpace data_default'
-                ++
-                -- Nullable
-                if nullable == "N" then " not null" else ""
-  
-          let
-            iter (a1::String) (a2::String) (a3::Integer) (a4::Maybe Integer) (a5::Maybe Integer) (a6::String) (a7::Maybe String) accum = result' ((a1,a2,a3,a4,a5,a6,a7):accum)
-      
-
-          columns_r <- withBoundStatement qryColumnDecl [bindP table_name] $ \stm ->
-                         reverse `liftM` doQuery stm iter []
-
-          let
-            column_order = map (\(column_name,_,_,_,_,_,_) -> column_name) columns_r
-            decl = if null columns_r then Nothing
-                   else Just $ intercalate ",\n" $ map getColumnDecl columns_r
-
-          return (decl, column_order)
-
-
-    -- Обрабатываем комментарии для колонок
-    getDeclColumnsComment table_name columns_order = do
-          let
-              getColumnComment (column_name, comments) =
-                case comments of
-                  Just comments' -> Just $ printf "comment on column %s.%s\n  is %s\n/\n"
-                                           (getSafeName table_name)
-                                           (getSafeName column_name)
-                                           (sqlStringLiteral comments')
-                  Nothing -> Nothing
-    
-          columns_comments_accum <- retrieveColumnsComments table_name
-
-          let columns_order_m = Map.fromList $ zip (map ON columns_order) ([1..] :: [Int])
-          let numbered_comments = zip columns_comments_accum ([1..] :: [Int])
-
-              
-          let x = concatMap ("\n" ++) $ mapMaybe (getColumnComment . fst) $
-                  flip sortBy numbered_comments $ \((x1,_),n1) ((x2,_),n2) ->
-                    let
-                      value_x1 = Map.lookup (ON x1) columns_order_m
-                      value_x2 = Map.lookup (ON x2) columns_order_m
-                    in
-                    case (value_x1, value_x2) of
-                      (Just x1, Just x2) -> compare x1 x2
-                      (Nothing, Nothing) -> compare n1 n2
-                      (Nothing, _) -> GT
-                      (_, Nothing) -> LT
-
-
-          return $ if null x then Nothing else Just x
-
-    -- Получаем декларацию отделного констрэйнта
-    getConstraintDecl schema table_name (OraTableConstraint constraint_name constraint_type search_condition r_owner r_constraint_name delete_rule status deferrable deferred) =
-      case constraint_type of
-        "P" -> -- Primary key
-               getConstraintDecl' "primary key"
-        "R" -> -- Foreign key
-               getConstraintDecl' "foreign key"
-        "U" -> -- Uniq key
-               getConstraintDecl' "unique"
-        "C" -> case search_condition of
-                 Nothing -> return Nothing
-                 Just sc ->
-                   -- if (map toLower sc) =~ "^[ \n\r\t\0]*[^ \n\r\t\0]+[ \n\r\t\0]+is[ \n\r\t\0]+not[ \n\r\t\0]+null[ \n\r\t\0]*$" :: Bool
-                   if parseMatch
-                        (map toLower sc)
-                        (do let spaces1 = skipMany1 space
-                                skipFieldName = (char '"' >> skipMany1 (noneOf "\"") >> char '"' >> return ()) -- имя поля взятое в кавычки, например: "Name"
-                                                <|>
-                                                skipMany1 (oneOf $ map toLower sympleOraNameSymbols) -- имя поля без кавычек (может содержать только "красивые" символы)
-                            skipFieldName >> spaces1 >> string "is" >> spaces1 >> string "not" >> spaces1 >> string "null" >> spaces >> eof)
-                   then return Nothing -- это просто условие not null
-                   else getConstraintDecl' $ "check (" ++ sc ++ ")"
-        "V" -> return Nothing
-        _   -> return Nothing
-
-
-      where
-
-        getConstraintDecl' ctype = do
-          columns_decl :: Maybe String <- getDeclConstraintColumns
-          tail_decl :: String <- getDeclConstraintTail
-
-          return . Just $ getCommonConstraintHeadDecl ctype ++ maybe "" (" " ++) columns_decl ++ tail_decl
-
-          where
-            getCommonConstraintHeadDecl=
-              ((if "SYS_" `isPrefixOf` map toUpper constraint_name then ""
-                else "constraint " ++ getSafeName constraint_name ++ " ") ++)
-
-        -- Формируем декларацию списка полей включённых в констрэйнт
-        getDeclConstraintColumns = do
-          let
-            iter (a1::String) accum = result' (a1:accum)
-
-          r <- 
-            withBoundStatement qryConstraintColumns1 [bindP table_name, bindP constraint_name] $ \stm ->
-              reverse `liftM` doQuery stm iter []
-
-          let
-            columns = filter (not . null) $ flip map r $ \column_name ->
-              case constraint_type of
-                "P" -> column_name
-                "R" -> column_name
-                "U" -> column_name
-                _ -> ""
-
-          return $ case columns of
-                     [] -> Nothing
-                     _  -> Just $ printf "(%s)" $ intercalate "," columns
-
-        -- Формируем заклччительную часть констрэйнта
-        getDeclConstraintTail = do
-
-          part1 <- case constraint_type of
-            "R" -> do -- Foreign key
-              let
-                iter (a1::String) (a2::String) accum = result' ((a1,a2):accum)
-
-              r <-
-                withBoundStatement qryConstraintColumns2 [bindP $ fromJust r_constraint_name] $ \stm ->
-                  reverse `liftM` doQuery stm iter []
-
-              let
-                r_table_name' = getSafeName . snd . head $ r
-                r_table_name =
-                  case r_owner of
-                    Nothing -> r_table_name'
-                    Just r_owner'
-                         | r_owner' == schema -> r_table_name'
-                         -- Владелец таблицы на которую ссылаемся не совпадает с владельцем
-                         -- ключа, поэтому указываем схему владельца таблицы явно
-                         | otherwise -> getSafeName r_owner' ++ "." ++ r_table_name'
-
-              ref_part <-
-                case r of
-                  [] -> do liftIO . printWarning $ "Error while processing constraint " ++ constraint_name
-                           return ""
-                  _  -> do let x = intercalate "," $ map fst r
-                           return $ printf "\n      references %s(%s)" r_table_name x
-
-              let delete_part = case delete_rule of
-                                  Just "NO ACTION" -> ""
-                                  Just rule  -> "\n      on delete " ++ map toLower rule
-                                  _ -> ""
-
-              return $ ref_part ++ delete_part
-
-            _ -> return ""
-
-          let deferred_part = if deferrable == "DEFERRABLE"
-                              then "\n  deferrable" ++
-                                   (if deferred == "DEFERRED" then " initially deferred" else "")
-                              else ""
-
-          status_part <- case status of
-            "ENABLED" -> return ""
-            "DISABLED" -> return "\n  disable"
-            _ -> do let msg = printf "Unknown constraint status '%s' for constraint '%s'" status constraint_name
-                    liftIO . printWarning $ msg
-                    return $ "\n-- " ++ msg
-
-          return $ part1 ++ deferred_part ++ status_part
-
-
-    -- Обрабатываем констрэйнты
-    getConstraintsDecl schema table_name filter_func (constraints::[OraTableConstraint]) = do
-          decls <- getConstraintsDeclList schema table_name filter_func constraints
-          let
-            decls_str = if null decls then Nothing
-                        else Just . intercalate "\n" . map ((++"\n/\n") . (printf "alter table %s\n  add " (getSafeName table_name) ++)) $ decls
-          return decls_str
-
-    getConstraintsDeclInline schema table_name filter_func (constraints::[OraTableConstraint]) = do
-          decls <- getConstraintsDeclList schema table_name filter_func constraints
-          let
-            decls_str = if null decls then Nothing
-                        else Just . intercalate ",\n" . map ("  "++) $ decls
-          return decls_str
-
-    getConstraintsList table_name = do
-          let
-            iter a1 a2 a3 a4 a5 a6 a7 a8 a9 accum = result' $ OraTableConstraint a1 a2 a3 a4 a5 a6 a7 a8 a9 : accum
-    
-          withBoundStatement qryConstraintDecl [bindP table_name] $ \stm ->
-            reverse `liftM` doQuery stm iter []
-
-    -- Возвращает список деклараций констрэйнтов
-    getConstraintsDeclList schema table_name filter_func (constraints::[OraTableConstraint]) =
-          catMaybes
-          `liftM`
-          mapM (getConstraintDecl schema table_name) (filter filter_func constraints)
-
-    -- Снимаем индексы
-    getDeclIndexes schema table_name constraints = do
-      let
-        iter (a1::String) (a2::String) (a3::String) (a4::String) (a5::String) accum = result' ((a1,a2,a3,a4,a5):accum)
-
-      r <-
-          withBoundStatement qryIndexes [bindP table_name] $ \stm ->
-            (reverse .
-             -- если это индекс для констрэйнта, то пропускаем его
-             filter (\(index_name,_,_,_,_) -> not $ M.member index_name constraints))
-            `liftM`
-            doQuery stm iter []
-
-      indexesDecl <- forM r $ \(index_name, uniqueness, table_owner, partitioned, index_type) -> do
-
-        index_columns <- getDeclIndexColumns index_name
-        let
-          headerDecl = "create"
-                       ++
-                       case () of
-                          _
-                            | uniqueness == "UNIQUE" -> " unique"
-                            | "BITMAP" `isInfixOf` index_type -> " bitmap"
-                            | otherwise -> ""
-                       ++
-                       " index " ++ getSafeName index_name
-                       ++
-                       (if table_owner == schema
-                        then printf "\n on %s\n" (getSafeName table_name)
-                        else printf "\n on %s.%s\n" (getSafeName table_owner) (getSafeName table_name))
-                       ++ "  (\n" ++ (intercalate ",\n" . map ("   "++)) index_columns ++ "\n  )"
-                       ++ (if partitioned == "YES" then "\n local" else "")
-
-        return headerDecl
-
-      if null indexesDecl
-       then return Nothing
-       else return . Just $ intercalate "\n/\n\n" indexesDecl ++ "\n/\n"
-
-      where
-        getDeclIndexColumns index_name = do
-          let
-            iter (a1::String) (a2::Integer) (a3::String) accum = result' ((a1,a2,a3):accum)
-          
-          column_index_expressions_map <- getIndexColumnExpressions
-               
-          r <- reverse `liftM`
-               catchDB (withBoundStatement qryIndexColumns1 [bindP index_name] $ \stm -> doQuery stm iter [])
-                       (\_ ->
-                          withBoundStatement qryIndexColumns2 [bindP index_name] $ \stm -> doQuery stm iter [])
-
-          return $ map (getDeclColumnIndex column_index_expressions_map) r
-
-
-            where
-              -- Табицы all_ind_expressions не было в Oracle 7, поэтому строим хэш column_expression
-              -- по ключу номера колонки отдельно.
-              getIndexColumnExpressions = do
-                let
-                  iter (cp::Integer) (ce::String) accum = result' $ M.insert cp ce accum
-
-                withBoundStatement qryIndexColumnExpressions [bindP index_name] $ \stm ->
-                  doQuery stm iter M.empty
-
-              -- Возвращает декларацию колонки индекса
-              getDeclColumnIndex column_index_expressions_map (column_name, column_position, descend) =
-                strip $ M.findWithDefault column_name column_position column_index_expressions_map
-                ++
-                (if map toUpper descend == "DESC" then " desc" else "")
-
-    getPartitionsDecl table_name = do
-      let
-        iter (partitioning_type :: String) (subpartitioning_type :: String) accum =
-          result' $ if True then Just (partitioning_type, subpartitioning_type) else accum
-
-      r <- withBoundStatement qryPartTables [bindP table_name] $ \stm ->
-             doQuery stm iter Nothing
-
-      case r of
-        Nothing -> return Nothing
-        Just (pt, st)  -> do
-          part_key_columns_decl <- getPartKeyColumnsDecl
-          subpart_key_columns_decl <- getSubPartKeyColumnsDecl
-
-          return . Just $
-            "/*\npartition by " ++ map toLower pt
-            ++
-            maybe "" (" "++) part_key_columns_decl
-            ++
-            case st of 
-              "NONE" -> ""
-              _      -> "\nsubpartition by " ++ map toLower st
-                        ++
-                        maybe "" (" "++) subpart_key_columns_decl
-            ++ "\n*/" 
-
-        where
-          getPartKeyColumnsDecl = do
-            let
-              iter (column_name :: String) accum = result' $ column_name : accum
-
-            r <- withBoundStatement qryPartKeyColumns [bindP table_name] $ \stm ->
-                 (reverse . map getSafeName) `fmap` doQuery stm iter []
-            
-            return $ case r of
-              [] -> Nothing
-              _  -> Just $ "(" ++ intercalate "," r ++ ")"
-
-          getSubPartKeyColumnsDecl = do
-            let
-              iter (column_name :: String) accum = result' $ column_name : accum
-
-            r <- withBoundStatement qrySubPartKeyColumns [bindP table_name] $ \stm ->
-                 (reverse . map getSafeName) `fmap` doQuery stm iter []
-            
-            return $ case r of
-              [] -> Nothing
-              _  -> Just $ "(" ++ intercalate "," r ++ ")"
-
-
-    getIOTDecl iot_type table_name columns =
-      case iot_type of
-        Just "IOT" -> do
-          let
-            iter (include_column::Maybe Int) accum = result' $ if False then accum else include_column
-
-          r <- withBoundStatement qryIncludeColumn [bindP table_name] $ \stm ->
-               doQuery stm iter Nothing
-
-          return . Just $
-                   "organization index"
-                   ++
-                   case r of
-                     Nothing -> ""
-                     Just 0 -> ""
-                     Just i ->
-                       case columns `safeValueByIndex` pred i of
-                         Just cn -> " including " ++ cn ++ " overflow"
-                         _       -> ""
-
-            
-        Just "IOT_OVERFLOW" -> return $ Just "/* IOT OVERFLOW table */"
-        _     -> return Nothing
-
-    onlyPrimaryKey :: OraTableConstraint -> Bool
-    onlyPrimaryKey x = constraint_type x == "P"
-
-    notPrimaryKey :: OraTableConstraint -> Bool
-    notPrimaryKey x = constraint_type x /= "P"
-
-  case what2Retrieve of
-    None -> return ()
-    _    -> doQuery stm iter ()
+    withPreparedStatement                     
+      (prepareQuery . sql $
+                      "select column_name            \n\
+                      \  from user_cons_columns      \n\
+                      \ where table_name = ?         \n\
+                      \   and constraint_name = ?    \n\
+                      \order by position             ") $ \qryConstraintColumns1 -> do
+      withPreparedStatement
+        (prepareQuery . sql $
+                        "select column_name,           \n\
+                        \       table_name             \n\
+                        \  from user_cons_columns      \n\
+                        \ where constraint_name = ?    \n\
+                        \order by position             ") $ \qryConstraintColumns2 -> do
+        withPreparedStatement
+          (prepareQuery . sql $
+                          "select constraint_name,                                            \n\
+                          \       constraint_type,                                            \n\
+                          \       search_condition,                                           \n\
+                          \       r_owner,                                                    \n\
+                          \       r_constraint_name,                                          \n\
+                          \       delete_rule,                                                \n\
+                          \       status,                                                     \n\
+                          \       deferrable,                                                 \n\
+                          \       deferred                                                    \n\
+                          \  from user_constraints                                            \n\
+                          \ where table_name = ?                                              \n\
+                          \order by decode(constraint_type, 'P',1, 'U',2, 'R',3, 'C',4, 100), \n\
+                          \         constraint_name") $ \qryConstraintDecl -> do
+          withPreparedStatement
+            (prepareQuery . sql $
+                            "select index_name    \n\
+                            \     , uniqueness    \n\
+                            \     , table_owner   \n\
+                            \     , partitioned   \n\
+                            \     , index_type    \n\
+                            \from user_indexes    \n\
+                            \where 1=1            "
+                            ++ 
+                            (
+                            if oSaveAutoGenerated opts
+                            then
+                            ""
+                            else
+                            "and generated = 'N'  \n"
+                            )
+                            ++
+                            "and table_name = ?   \n\
+                            \order by index_name  ") $ \qryIndexes -> do
+            withPreparedStatement    
+              (prepareQuery . sql $
+                              "select column_name         \n\
+                              \     , column_position     \n\
+                              \     , descend             \n\
+                              \  from user_ind_columns    \n\
+                              \ where index_name = ?      \n\
+                              \order by column_position   ") $ \qryIndexColumns1 -> do
+              withPreparedStatement
+                (prepareQuery . sql $
+                                "select column_name         \n\
+                                \     , column_position     \n\
+                                \     , '' as descend       \n\
+                                \  from user_ind_columns    \n\
+                                \ where index_name = ?      \n\
+                                \order by column_position   ") $ \qryIndexColumns2 -> do
+                withPreparedStatement
+                  (prepareQuery . sql $
+                                  "select column_position         \n\
+                                  \     , column_expression       \n\
+                                  \  from user_ind_expressions    \n\
+                                  \ where index_name = ?          ") $ \qryIndexColumnExpressions -> do
+                  withPreparedStatement
+                    (prepareQuery . sql $
+                                    "select partitioning_type        \n\
+                                    \     , subpartitioning_type     \n\
+                                    \  from user_part_tables         \n\
+                                    \ where table_name = ?           ") $ \qryPartTables -> do
+                    withPreparedStatement
+                      (prepareQuery . sql $
+                                      "select column_name              \n\
+                                      \  from user_part_key_columns    \n\
+                                      \ where name = ?                 \n\
+                                      \order by column_position        ") $ \qryPartKeyColumns -> do
+                      withPreparedStatement
+                        (prepareQuery . sql $
+                                        "select column_name                 \n\
+                                        \  from user_subpart_key_columns    \n\
+                                        \ where name = ?                    \n\
+                                        \order by column_position           ") $ \qrySubPartKeyColumns -> do
+                        withPreparedStatement
+                          (prepareQuery . sql $
+                                          "select ui.include_column             \n\
+                                          \  from user_constraints uc,          \n\
+                                          \       user_indexes ui               \n\
+                                          \ where uc.constraint_type = 'P'      \n\
+                                          \   and uc.index_name = ui.index_name \n\
+                                          \   and uc.table_name = ?             ") $ \qryIncludeColumn -> do
+                          let
+                            stm  = sql
+                                   (
+                                    "select a.table_name                               \n\
+                                    \     , b.comments                                 \n\
+                                    \     , a.temporary                                \n\
+                                    \     , a.duration                                 \n\
+                                    \     , a.row_movement                             \n\
+                                    \     , a.cache                                    \n\
+                                    \     , a.iot_type                                 \n\
+                                    \  from user_tables a,                             \n\
+                                    \       user_tab_comments b                        \n\
+                                    \ where a.table_name=b.table_name(+)               \n\
+                                    \   and (a.iot_type is null                        \n\
+                                    \        or                                        \n\
+                                    \        a.iot_type <> 'IOT_OVERFLOW')             \n\
+                                    \   and not exists (                               \n\
+                                    \              select 1                            \n\
+                                    \                from user_mviews v                \n\
+                                    \               where a.table_name = v.mview_name  \n\
+                                    \                 and v.owner = user               \n\
+                                    \                  )                               \n\
+                                    \"
+                                    ++
+                                    case what2Retrieve of
+                                      JustList lst ->
+                                        printf "   and a.table_name in (%s) \n" $ getUnionAll lst
+                                      _ ->
+                                           -- automatically created by oracle tables related to materialized views
+                                           "   and a.table_name not like 'MLOG$_%'\n\
+                                           \   and a.table_name not like 'RUPD$_%'\n\
+                                           \"
+                                           ++
+                                           (
+                                            if not (oSaveDollared opts)
+                                              then "   and a.table_name not like '%$%'"
+                                              else ""
+                                           )
+                                   )
+                           
+                            iter (a1::String) (a2::Maybe String) (a3::String) (a4::Maybe String) (a5::String) (a6::String) (a7::Maybe String) accum = saveOneFile a1 a2 a3 a4 a5 a6 a7 >> result' accum
+                        
+                            -- Сохраняет одну таблицу
+                            saveOneFile table_name comments temporary duration row_movement cache iot_type = do
+                        
+                              -- Соединяем все вместе и получаем декларацию всей таблицы
+                              (columns_decl :: Maybe String, columns_order :: [String]) <- getDeclColumns table_name
+                              partitions_decl <- getPartitionsDecl table_name
+                              columns_comment_decl :: Maybe String <- getDeclColumnsComment table_name columns_order
+                              constraints_list <- getConstraintsList table_name
+                              let constraints = M.fromList $ map (\x -> (constraint_name x, ())) constraints_list
+                              inline_constraints_decl :: Maybe String <-
+                                getConstraintsDeclInline schema table_name (if isJust iot_type then onlyPrimaryKey else const False) constraints_list
+                              constraints_decl :: Maybe String <- getConstraintsDecl schema table_name (if isJust iot_type then notPrimaryKey else const True) constraints_list
+                              indexes_decl :: Maybe String <- getDeclIndexes schema table_name $ if oSaveAutoGenerated opts then Map.empty else constraints 
+                              iot_decl :: Maybe String <- getIOTDecl iot_type table_name columns_order
+                              let
+                                table_spec = if temporary == "Y" then "global temporary " else ""
+                                temporary_decl = 
+                                  case temporary of
+                                    "Y" -> case duration of
+                                             Just "SYS$TRANSACTION" -> Just "on commit delete rows"
+                                             Just "SYS$SESSION"     -> Just "on commit preserve rows"
+                                             _                      -> Nothing
+                                    _   -> Nothing
+                          
+                                decl :: String =
+                                  printf "\
+                                          \create %stable %s" table_spec (getSafeName table_name)
+                                  ++
+                                  (if isJust columns_decl || isJust inline_constraints_decl then
+                                     "\n (\n"
+                                     ++
+                                     (intercalate ",\n" . catMaybes $ [columns_decl, inline_constraints_decl])
+                                     ++
+                                     "\n )"
+                                   else "")
+                                  ++
+                                  maybe "" ("\n"++) iot_decl
+                                  ++
+                                  maybe "" ("\n"++) partitions_decl
+                                  ++
+                                  case cache of
+                                    "Y" -> "\ncache"
+                                    _ -> ""
+                                  ++
+                                  case row_movement of
+                                    "ENABLED" -> "\nenable row movement"
+                                    _ -> ""
+                                  ++
+                                  maybe "" ("\n"++) temporary_decl
+                                  ++
+                                  "\n/\n"
+                                  ++
+                                  maybe "" (printf "\ncomment on table %s\n  is %s\n/\n" (getSafeName table_name) . sqlStringLiteral) comments
+                                  ++
+                                  fromMaybe "" columns_comment_decl
+                                  ++
+                                  maybe "" ("\n"++) indexes_decl
+                                  ++
+                                  maybe "" ("\n"++) constraints_decl
+                                        
+                              liftIO $ write2File (oOutputDir opts) table_name "tab" decl
+                          
+                        
+                            -- Получение деклараций колонок таблицы
+                            getDeclColumns table_name = do
+                                  let
+                                    -- Получение декларации для колонки таблицы
+                                    getColumnDecl (column_name, data_type, data_length, data_precision, data_scale, nullable, data_default) =
+                                        printf "  %s %s" (getSafeName column_name) data_type
+                                        ++
+                                        -- Обрабатываем тип даннх
+                                        case data_type of
+                                          "CHAR"     -> printf "(%d)" data_length
+                                          "VARCHAR2" -> printf "(%d)" data_length
+                                          "NUMBER"   -> case data_precision of
+                                                          Nothing -> ""
+                                                          Just data_precision' -> "("
+                                                                                  ++
+                                                                                  show data_precision'
+                                                                                  ++
+                                                                                  case data_scale of
+                                                                                    Nothing -> ""
+                                                                                    Just 0 -> ""
+                                                                                    Just data_scale' -> printf ",%d" data_scale'
+                                                                                  ++
+                                                                                  ")"
+                                          _ -> ""
+                                        ++
+                                        -- Значение поумолчанию
+                                        case data_default of
+                                          Nothing -> ""
+                                          Just data_default' -> " default " ++ dropWhileEnd isSpace data_default'
+                                        ++
+                                        -- Nullable
+                                        if nullable == "N" then " not null" else ""
+                          
+                                  let
+                                    iter (a1::String) (a2::String) (a3::Integer) (a4::Maybe Integer) (a5::Maybe Integer) (a6::String) (a7::Maybe String) accum = result' ((a1,a2,a3,a4,a5,a6,a7):accum)
+                              
+                        
+                                  columns_r <- withBoundStatement qryColumnDecl [bindP table_name] $ \stm ->
+                                                 reverse `liftM` doQuery stm iter []
+                        
+                                  let
+                                    column_order = map (\(column_name,_,_,_,_,_,_) -> column_name) columns_r
+                                    decl = if null columns_r then Nothing
+                                           else Just $ intercalate ",\n" $ map getColumnDecl columns_r
+                        
+                                  return (decl, column_order)
+                        
+                        
+                            -- Обрабатываем комментарии для колонок
+                            getDeclColumnsComment table_name columns_order = do
+                                  let
+                                      getColumnComment (column_name, comments) =
+                                        case comments of
+                                          Just comments' -> Just $ printf "comment on column %s.%s\n  is %s\n/\n"
+                                                                   (getSafeName table_name)
+                                                                   (getSafeName column_name)
+                                                                   (sqlStringLiteral comments')
+                                          Nothing -> Nothing
+                            
+                                  columns_comments_accum <- retrieveColumnsComments table_name
+                        
+                                  let columns_order_m = Map.fromList $ zip (map ON columns_order) ([1..] :: [Int])
+                                  let numbered_comments = zip columns_comments_accum ([1..] :: [Int])
+                        
+                                      
+                                  let x = concatMap ("\n" ++) $ mapMaybe (getColumnComment . fst) $
+                                          flip sortBy numbered_comments $ \((x1,_),n1) ((x2,_),n2) ->
+                                            let
+                                              value_x1 = Map.lookup (ON x1) columns_order_m
+                                              value_x2 = Map.lookup (ON x2) columns_order_m
+                                            in
+                                            case (value_x1, value_x2) of
+                                              (Just x1, Just x2) -> compare x1 x2
+                                              (Nothing, Nothing) -> compare n1 n2
+                                              (Nothing, _) -> GT
+                                              (_, Nothing) -> LT
+                        
+                        
+                                  return $ if null x then Nothing else Just x
+                        
+                            -- Получаем декларацию отделного констрэйнта
+                            getConstraintDecl schema table_name (OraTableConstraint constraint_name constraint_type search_condition r_owner r_constraint_name delete_rule status deferrable deferred) =
+                              case constraint_type of
+                                "P" -> -- Primary key
+                                       getConstraintDecl' "primary key"
+                                "R" -> -- Foreign key
+                                       getConstraintDecl' "foreign key"
+                                "U" -> -- Uniq key
+                                       getConstraintDecl' "unique"
+                                "C" -> case search_condition of
+                                         Nothing -> return Nothing
+                                         Just sc ->
+                                           -- if (map toLower sc) =~ "^[ \n\r\t\0]*[^ \n\r\t\0]+[ \n\r\t\0]+is[ \n\r\t\0]+not[ \n\r\t\0]+null[ \n\r\t\0]*$" :: Bool
+                                           if parseMatch
+                                                (map toLower sc)
+                                                (do let spaces1 = skipMany1 space
+                                                        skipFieldName = (char '"' >> skipMany1 (noneOf "\"") >> char '"' >> return ()) -- имя поля взятое в кавычки, например: "Name"
+                                                                        <|>
+                                                                        skipMany1 (oneOf $ map toLower sympleOraNameSymbols) -- имя поля без кавычек (может содержать только "красивые" символы)
+                                                    skipFieldName >> spaces1 >> string "is" >> spaces1 >> string "not" >> spaces1 >> string "null" >> spaces >> eof)
+                                           then return Nothing -- это просто условие not null
+                                           else getConstraintDecl' $ "check (" ++ sc ++ ")"
+                                "V" -> return Nothing
+                                _   -> return Nothing
+                        
+                        
+                              where
+                        
+                                getConstraintDecl' ctype = do
+                                  columns_decl :: Maybe String <- getDeclConstraintColumns
+                                  tail_decl :: String <- getDeclConstraintTail
+                        
+                                  return . Just $ getCommonConstraintHeadDecl ctype ++ maybe "" (" " ++) columns_decl ++ tail_decl
+                        
+                                  where
+                                    getCommonConstraintHeadDecl=
+                                      ((if "SYS_" `isPrefixOf` map toUpper constraint_name then ""
+                                        else "constraint " ++ getSafeName constraint_name ++ " ") ++)
+                        
+                                -- Формируем декларацию списка полей включённых в констрэйнт
+                                getDeclConstraintColumns = do
+                                  let
+                                    iter (a1::String) accum = result' (a1:accum)
+                        
+                                  r <- 
+                                    withBoundStatement qryConstraintColumns1 [bindP table_name, bindP constraint_name] $ \stm ->
+                                      reverse `liftM` doQuery stm iter []
+                        
+                                  let
+                                    columns = filter (not . null) $ flip map r $ \column_name ->
+                                      case constraint_type of
+                                        "P" -> column_name
+                                        "R" -> column_name
+                                        "U" -> column_name
+                                        _ -> ""
+                        
+                                  return $ case columns of
+                                             [] -> Nothing
+                                             _  -> Just $ printf "(%s)" $ intercalate "," columns
+                        
+                                -- Формируем заклччительную часть констрэйнта
+                                getDeclConstraintTail = do
+                        
+                                  part1 <- case constraint_type of
+                                    "R" -> do -- Foreign key
+                                      let
+                                        iter (a1::String) (a2::String) accum = result' ((a1,a2):accum)
+                        
+                                      r <-
+                                        withBoundStatement qryConstraintColumns2 [bindP $ fromJust r_constraint_name] $ \stm ->
+                                          reverse `liftM` doQuery stm iter []
+                        
+                                      let
+                                        r_table_name' = getSafeName . snd . head $ r
+                                        r_table_name =
+                                          case r_owner of
+                                            Nothing -> r_table_name'
+                                            Just r_owner'
+                                                 | r_owner' == schema -> r_table_name'
+                                                 -- Владелец таблицы на которую ссылаемся не совпадает с владельцем
+                                                 -- ключа, поэтому указываем схему владельца таблицы явно
+                                                 | otherwise -> getSafeName r_owner' ++ "." ++ r_table_name'
+                        
+                                      ref_part <-
+                                        case r of
+                                          [] -> do liftIO . printWarning $ "Error while processing constraint " ++ constraint_name
+                                                   return ""
+                                          _  -> do let x = intercalate "," $ map fst r
+                                                   return $ printf "\n      references %s(%s)" r_table_name x
+                        
+                                      let delete_part = case delete_rule of
+                                                          Just "NO ACTION" -> ""
+                                                          Just rule  -> "\n      on delete " ++ map toLower rule
+                                                          _ -> ""
+                        
+                                      return $ ref_part ++ delete_part
+                        
+                                    _ -> return ""
+                        
+                                  let deferred_part = if deferrable == "DEFERRABLE"
+                                                      then "\n  deferrable" ++
+                                                           (if deferred == "DEFERRED" then " initially deferred" else "")
+                                                      else ""
+                        
+                                  status_part <- case status of
+                                    "ENABLED" -> return ""
+                                    "DISABLED" -> return "\n  disable"
+                                    _ -> do let msg = printf "Unknown constraint status '%s' for constraint '%s'" status constraint_name
+                                            liftIO . printWarning $ msg
+                                            return $ "\n-- " ++ msg
+                        
+                                  return $ part1 ++ deferred_part ++ status_part
+                        
+                        
+                            -- Обрабатываем констрэйнты
+                            getConstraintsDecl schema table_name filter_func (constraints::[OraTableConstraint]) = do
+                                  decls <- getConstraintsDeclList schema table_name filter_func constraints
+                                  let
+                                    decls_str = if null decls then Nothing
+                                                else Just . intercalate "\n" . map ((++"\n/\n") . (printf "alter table %s\n  add " (getSafeName table_name) ++)) $ decls
+                                  return decls_str
+                        
+                            getConstraintsDeclInline schema table_name filter_func (constraints::[OraTableConstraint]) = do
+                                  decls <- getConstraintsDeclList schema table_name filter_func constraints
+                                  let
+                                    decls_str = if null decls then Nothing
+                                                else Just . intercalate ",\n" . map ("  "++) $ decls
+                                  return decls_str
+                        
+                            getConstraintsList table_name = do
+                                  let
+                                    iter a1 a2 a3 a4 a5 a6 a7 a8 a9 accum = result' $ OraTableConstraint a1 a2 a3 a4 a5 a6 a7 a8 a9 : accum
+                            
+                                  withBoundStatement qryConstraintDecl [bindP table_name] $ \stm ->
+                                    reverse `liftM` doQuery stm iter []
+                        
+                            -- Возвращает список деклараций констрэйнтов
+                            getConstraintsDeclList schema table_name filter_func (constraints::[OraTableConstraint]) =
+                                  catMaybes
+                                  `liftM`
+                                  mapM (getConstraintDecl schema table_name) (filter filter_func constraints)
+                        
+                            -- Снимаем индексы
+                            getDeclIndexes schema table_name constraints = do
+                              let
+                                iter (a1::String) (a2::String) (a3::String) (a4::String) (a5::String) accum = result' ((a1,a2,a3,a4,a5):accum)
+                        
+                              r <-
+                                  withBoundStatement qryIndexes [bindP table_name] $ \stm ->
+                                    (reverse .
+                                     -- если это индекс для констрэйнта, то пропускаем его
+                                     filter (\(index_name,_,_,_,_) -> not $ M.member index_name constraints))
+                                    `liftM`
+                                    doQuery stm iter []
+                        
+                              indexesDecl <- forM r $ \(index_name, uniqueness, table_owner, partitioned, index_type) -> do
+                        
+                                index_columns <- getDeclIndexColumns index_name
+                                let
+                                  headerDecl = "create"
+                                               ++
+                                               case () of
+                                                  _
+                                                    | uniqueness == "UNIQUE" -> " unique"
+                                                    | "BITMAP" `isInfixOf` index_type -> " bitmap"
+                                                    | otherwise -> ""
+                                               ++
+                                               " index " ++ getSafeName index_name
+                                               ++
+                                               (if table_owner == schema
+                                                then printf "\n on %s\n" (getSafeName table_name)
+                                                else printf "\n on %s.%s\n" (getSafeName table_owner) (getSafeName table_name))
+                                               ++ "  (\n" ++ (intercalate ",\n" . map ("   "++)) index_columns ++ "\n  )"
+                                               ++ (if partitioned == "YES" then "\n local" else "")
+                        
+                                return headerDecl
+                        
+                              if null indexesDecl
+                               then return Nothing
+                               else return . Just $ intercalate "\n/\n\n" indexesDecl ++ "\n/\n"
+                        
+                              where
+                                getDeclIndexColumns index_name = do
+                                  let
+                                    iter (a1::String) (a2::Integer) (a3::String) accum = result' ((a1,a2,a3):accum)
+                                  
+                                  column_index_expressions_map <- getIndexColumnExpressions
+                                       
+                                  r <- reverse `liftM`
+                                       catchDB (withBoundStatement qryIndexColumns1 [bindP index_name] $ \stm -> doQuery stm iter [])
+                                               (\_ ->
+                                                  withBoundStatement qryIndexColumns2 [bindP index_name] $ \stm -> doQuery stm iter [])
+                        
+                                  return $ map (getDeclColumnIndex column_index_expressions_map) r
+                        
+                        
+                                    where
+                                      -- Табицы all_ind_expressions не было в Oracle 7, поэтому строим хэш column_expression
+                                      -- по ключу номера колонки отдельно.
+                                      getIndexColumnExpressions = do
+                                        let
+                                          iter (cp::Integer) (ce::String) accum = result' $ M.insert cp ce accum
+                        
+                                        withBoundStatement qryIndexColumnExpressions [bindP index_name] $ \stm ->
+                                          doQuery stm iter M.empty
+                        
+                                      -- Возвращает декларацию колонки индекса
+                                      getDeclColumnIndex column_index_expressions_map (column_name, column_position, descend) =
+                                        strip $ M.findWithDefault column_name column_position column_index_expressions_map
+                                        ++
+                                        (if map toUpper descend == "DESC" then " desc" else "")
+                        
+                            getPartitionsDecl table_name = do
+                              let
+                                iter (partitioning_type :: String) (subpartitioning_type :: String) accum =
+                                  result' $ if True then Just (partitioning_type, subpartitioning_type) else accum
+                        
+                              r <- withBoundStatement qryPartTables [bindP table_name] $ \stm ->
+                                     doQuery stm iter Nothing
+                        
+                              case r of
+                                Nothing -> return Nothing
+                                Just (pt, st)  -> do
+                                  part_key_columns_decl <- getPartKeyColumnsDecl
+                                  subpart_key_columns_decl <- getSubPartKeyColumnsDecl
+                        
+                                  return . Just $
+                                    "/*\npartition by " ++ map toLower pt
+                                    ++
+                                    maybe "" (" "++) part_key_columns_decl
+                                    ++
+                                    case st of 
+                                      "NONE" -> ""
+                                      _      -> "\nsubpartition by " ++ map toLower st
+                                                ++
+                                                maybe "" (" "++) subpart_key_columns_decl
+                                    ++ "\n*/" 
+                        
+                                where
+                                  getPartKeyColumnsDecl = do
+                                    let
+                                      iter (column_name :: String) accum = result' $ column_name : accum
+                        
+                                    r <- withBoundStatement qryPartKeyColumns [bindP table_name] $ \stm ->
+                                         (reverse . map getSafeName) `fmap` doQuery stm iter []
+                                    
+                                    return $ case r of
+                                      [] -> Nothing
+                                      _  -> Just $ "(" ++ intercalate "," r ++ ")"
+                        
+                                  getSubPartKeyColumnsDecl = do
+                                    let
+                                      iter (column_name :: String) accum = result' $ column_name : accum
+                        
+                                    r <- withBoundStatement qrySubPartKeyColumns [bindP table_name] $ \stm ->
+                                         (reverse . map getSafeName) `fmap` doQuery stm iter []
+                                    
+                                    return $ case r of
+                                      [] -> Nothing
+                                      _  -> Just $ "(" ++ intercalate "," r ++ ")"
+                        
+                        
+                            getIOTDecl iot_type table_name columns =
+                              case iot_type of
+                                Just "IOT" -> do
+                                  let
+                                    iter (include_column::Maybe Int) accum = result' $ if False then accum else include_column
+                        
+                                  r <- withBoundStatement qryIncludeColumn [bindP table_name] $ \stm ->
+                                       doQuery stm iter Nothing
+                        
+                                  return . Just $
+                                           "organization index"
+                                           ++
+                                           case r of
+                                             Nothing -> ""
+                                             Just 0 -> ""
+                                             Just i ->
+                                               case columns `safeValueByIndex` pred i of
+                                                 Just cn -> " including " ++ cn ++ " overflow"
+                                                 _       -> ""
+                        
+                                    
+                                Just "IOT_OVERFLOW" -> return $ Just "/* IOT OVERFLOW table */"
+                                _     -> return Nothing
+                        
+                            onlyPrimaryKey :: OraTableConstraint -> Bool
+                            onlyPrimaryKey x = constraint_type x == "P"
+                        
+                            notPrimaryKey :: OraTableConstraint -> Bool
+                            notPrimaryKey x = constraint_type x /= "P"
+                        
+                          case what2Retrieve of
+                            None -> return ()
+                            _    -> doQuery stm iter ()
 
